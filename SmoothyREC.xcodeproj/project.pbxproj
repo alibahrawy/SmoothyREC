@@ -1,0 +1,394 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AABB0001000000000001 /* SmoothyRECApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0001000000000001 /* SmoothyRECApp.swift */; };
+		AABB0002000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0002000000000001 /* ContentView.swift */; };
+		AABB0003000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0003000000000001 /* SettingsView.swift */; };
+		AABB0004000000000001 /* ScreenRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0004000000000001 /* ScreenRecorder.swift */; };
+		AABB0005000000000001 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0005000000000001 /* MainWindowView.swift */; };
+		AABB0006000000000001 /* DeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0006000000000001 /* DeviceManager.swift */; };
+		AABB0007000000000001 /* MicRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0007000000000001 /* MicRecorder.swift */; };
+		AABB0008000000000001 /* CameraRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0008000000000001 /* CameraRecorder.swift */; };
+		AABB0009000000000001 /* RecordingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0009000000000001 /* RecordingCoordinator.swift */; };
+		AABB000A000000000001 /* RecordingStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF000A000000000001 /* RecordingStatusView.swift */; };
+		AABB000B000000000001 /* CompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF000B000000000001 /* CompletionView.swift */; };
+		AABB000C000000000001 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF000C000000000001 /* SettingsManager.swift */; };
+		AABB000D000000000001 /* SettingsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF000D000000000001 /* SettingsPanelView.swift */; };
+		AABB000E000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAFF000E000000000001 /* Assets.xcassets */; };
+		AABB000F000000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAFF0010000000000001 /* Preview Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AAFF0000000000000001 /* SmoothyREC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SmoothyREC.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAFF0001000000000001 /* SmoothyRECApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmoothyRECApp.swift; sourceTree = "<group>"; };
+		AAFF0002000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AAFF0003000000000001 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AAFF0004000000000001 /* ScreenRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenRecorder.swift; sourceTree = "<group>"; };
+		AAFF0005000000000001 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
+		AAFF0006000000000001 /* DeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceManager.swift; sourceTree = "<group>"; };
+		AAFF0007000000000001 /* MicRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicRecorder.swift; sourceTree = "<group>"; };
+		AAFF0008000000000001 /* CameraRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraRecorder.swift; sourceTree = "<group>"; };
+		AAFF0009000000000001 /* RecordingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingCoordinator.swift; sourceTree = "<group>"; };
+		AAFF000A000000000001 /* RecordingStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStatusView.swift; sourceTree = "<group>"; };
+		AAFF000B000000000001 /* CompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletionView.swift; sourceTree = "<group>"; };
+		AAFF000C000000000001 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
+		AAFF000D000000000001 /* SettingsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPanelView.swift; sourceTree = "<group>"; };
+		AAFF000E000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AAFF0010000000000001 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		AAFF0011000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AAFF0012000000000001 /* SmoothyREC.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SmoothyREC.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AAPP0001000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AAGG0001000000000001 = {
+			isa = PBXGroup;
+			children = (
+				AAGG0002000000000001 /* SmoothyREC */,
+				AAGG0003000000000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AAGG0002000000000001 /* SmoothyREC */ = {
+			isa = PBXGroup;
+			children = (
+				AAFF0001000000000001 /* SmoothyRECApp.swift */,
+				AAFF0002000000000001 /* ContentView.swift */,
+				AAFF0003000000000001 /* SettingsView.swift */,
+				AAFF0004000000000001 /* ScreenRecorder.swift */,
+				AAFF0005000000000001 /* MainWindowView.swift */,
+				AAFF0006000000000001 /* DeviceManager.swift */,
+				AAFF0007000000000001 /* MicRecorder.swift */,
+				AAFF0008000000000001 /* CameraRecorder.swift */,
+				AAFF0009000000000001 /* RecordingCoordinator.swift */,
+				AAFF000A000000000001 /* RecordingStatusView.swift */,
+				AAFF000B000000000001 /* CompletionView.swift */,
+				AAFF000C000000000001 /* SettingsManager.swift */,
+				AAFF000D000000000001 /* SettingsPanelView.swift */,
+				AAFF000E000000000001 /* Assets.xcassets */,
+				AAFF000F000000000001 /* Preview Content */,
+				AAFF0011000000000001 /* Info.plist */,
+				AAFF0012000000000001 /* SmoothyREC.entitlements */,
+			);
+			path = SmoothyREC;
+			sourceTree = "<group>";
+		};
+		AAGG0003000000000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AAFF0000000000000001 /* SmoothyREC.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AAFF000F000000000001 /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				AAFF0010000000000001 /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AATT0001000000000001 /* SmoothyREC */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AACL0003000000000001 /* Build configuration list for PBXNativeTarget "SmoothyREC" */;
+			buildPhases = (
+				AABB0010000000000001 /* Sources */,
+				AAPP0001000000000001 /* Frameworks */,
+				AAPP0002000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SmoothyREC;
+			productName = SmoothyREC;
+			productReference = AAFF0000000000000001 /* SmoothyREC.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AAPR0001000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AATT0001000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = AACL0001000000000001 /* Build configuration list for PBXProject "SmoothyREC" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AAGG0001000000000001;
+			productRefGroup = AAGG0003000000000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AATT0001000000000001 /* SmoothyREC */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AAPP0002000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABB000F000000000001 /* Preview Assets.xcassets in Resources */,
+				AABB000E000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABB0010000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABB0001000000000001 /* SmoothyRECApp.swift in Sources */,
+				AABB0002000000000001 /* ContentView.swift in Sources */,
+				AABB0003000000000001 /* SettingsView.swift in Sources */,
+				AABB0004000000000001 /* ScreenRecorder.swift in Sources */,
+				AABB0005000000000001 /* MainWindowView.swift in Sources */,
+				AABB0006000000000001 /* DeviceManager.swift in Sources */,
+				AABB0007000000000001 /* MicRecorder.swift in Sources */,
+				AABB0008000000000001 /* CameraRecorder.swift in Sources */,
+				AABB0009000000000001 /* RecordingCoordinator.swift in Sources */,
+				AABB000A000000000001 /* RecordingStatusView.swift in Sources */,
+				AABB000B000000000001 /* CompletionView.swift in Sources */,
+				AABB000C000000000001 /* SettingsManager.swift in Sources */,
+				AABB000D000000000001 /* SettingsPanelView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AABC0001000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AABC0002000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		AABC0003000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SmoothyREC/SmoothyREC.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"SmoothyREC/Preview Content\"";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SmoothyREC/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smoothyrec.SmoothyREC;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AABC0004000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SmoothyREC/SmoothyREC.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"SmoothyREC/Preview Content\"";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SmoothyREC/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smoothyrec.SmoothyREC;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AACL0001000000000001 /* Build configuration list for PBXProject "SmoothyREC" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABC0001000000000001 /* Debug */,
+				AABC0002000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AACL0003000000000001 /* Build configuration list for PBXNativeTarget "SmoothyREC" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABC0003000000000001 /* Debug */,
+				AABC0004000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AAPR0001000000000001 /* Project object */;
+}

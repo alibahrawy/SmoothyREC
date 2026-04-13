@@ -1,0 +1,40 @@
+# SmoothyREC
+
+*.DS_Store
+*.xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+derived_data/
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Build products
+*.app
+*.dmg
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+iOSInjectionProject/
+
+# Temporary files
+*.tmp
+*.swp
+*~
