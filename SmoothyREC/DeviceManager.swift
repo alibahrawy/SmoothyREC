@@ -19,11 +19,11 @@ struct Display: Identifiable, Hashable, CustomStringConvertible {
     let width: Int
     let height: Int
     let isMain: Bool
-    
+
     var description: String {
         "\(name) (\(width)×\(height))"
     }
-    
+
     var displaySize: String {
         "\(width) × \(height)"
     }
@@ -37,14 +37,14 @@ struct CaptureWindow: Identifiable, Hashable, CustomStringConvertible {
     let icon: NSImage?
     let frame: CGRect
     let isOnScreen: Bool
-    
+
     var description: String {
         if applicationName.isEmpty || applicationName == name {
             return name
         }
         return "\(applicationName) — \(name)"
     }
-    
+
     var size: CGSize {
         frame.size
     }
@@ -57,11 +57,11 @@ struct Camera: Identifiable, Hashable, CustomStringConvertible {
     let isBuiltIn: Bool
     let position: AVCaptureDevice.Position
     let formats: [AVCaptureDevice.Format]
-    
+
     var description: String {
         name
     }
-    
+
     var icon: String {
         isBuiltIn ? "laptopcomputer" : "web.camera.fill"
     }
@@ -74,11 +74,11 @@ struct Microphone: Identifiable, Hashable, CustomStringConvertible {
     let isBuiltIn: Bool
     let supportedSampleRates: [Double]
     let inputChannels: Int
-    
+
     var description: String {
         name
     }
-    
+
     var icon: String {
         isBuiltIn ? "mic" : "mic.fill"
     }
@@ -91,7 +91,7 @@ enum DeviceEnumerationError: Error, LocalizedError {
     case screenCapturePermissionDenied
     case avFoundationError(Error)
     case invalidWindowFilter
-    
+
     var errorDescription: String? {
         switch self {
         case .noDisplaysFound:
@@ -110,9 +110,9 @@ enum DeviceEnumerationError: Error, LocalizedError {
 
 @MainActor
 class DeviceManager: ObservableObject {
-    
+
     // MARK: - Published Properties
-    
+
     @Published var displays: [Display] = []
     @Published var windows: [CaptureWindow] = []
     @Published var cameras: [Camera] = []
@@ -120,19 +120,19 @@ class DeviceManager: ObservableObject {
     @Published private(set) var screenPermissionGranted = false
     @Published private(set) var cameraPermissionStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @Published private(set) var microphonePermissionStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-    
+
     @Published var isLoading = false
     @Published var lastError: Error?
-    
+
     // MARK: - Internal State
-    
+
     private var hasRequestedScreenPermission = false
     private var isRefreshing = false
-    
+
     // MARK: - Configuration
-    
+
     var minimumWindowArea: CGFloat = 10000
-    
+
     var excludedWindowTitles: [String] = [
         "",
         "dock",
@@ -142,7 +142,7 @@ class DeviceManager: ObservableObject {
         "control center",
         "spotlight"
     ]
-    
+
     var excludedBundleIDs: [String] = [
         "com.apple.dock",
         "com.apple.menuextra",
@@ -150,57 +150,111 @@ class DeviceManager: ObservableObject {
         "com.apple.notificationcenterui",
         "com.apple.controlcenter"
     ]
-    
+
     // MARK: - Initialization
-    
+
     init() {
-        Task {
-            await refreshAllDevices()
-        }
-        
+        // Don't auto-refresh displays on init - SCShareableContent triggers permission dialog
+        // even when permission is already granted (macOS bug FB22261705)
+        // Only refresh when explicitly requested (e.g., when starting recording)
         setupObservers()
+
+        // Check camera/mic permissions silently (these don't trigger dialogs)
+        Task {
+            cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
+            microphonePermissionStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        }
     }
-    
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
-    
+
     // MARK: - Screen Permission
-    
+
     func checkScreenPermission() -> Bool {
         return screenPermissionGranted
     }
-    
+
+    /// Checks screen-recording permission WITHOUT triggering any dialog.
+    /// Uses CGPreflightScreenCaptureAccess which is silent (no user prompt).
+    /// This is for UI status display only - not for actual capture.
+    func checkScreenPermissionStatusSilently() -> Bool {
+        let hasPermission = CGPreflightScreenCaptureAccess()
+        screenPermissionGranted = hasPermission
+        return hasPermission
+    }
+
     /// Checks screen-recording permission state via SCShareableContent.
-    /// Does NOT call CGRequestScreenCaptureAccess() which is broken on macOS Tahoe
-    /// (see FB22261705) and repeatedly opens System Settings on Sequoia/Tahoe.
+    /// This can trigger the system permission dialog on some macOS versions.
+    /// Only call this from explicit user actions or when starting capture.
     @discardableResult
     func requestScreenRecordingPermission() async -> Bool {
         await refreshDisplays()
         return screenPermissionGranted
     }
-    
+
     // MARK: - Public Methods
-    
-    func refreshAllDevices() async {
+
+    func refreshAllDevices(includeScreenCaptureContent: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
-        
+
         isLoading = true
         defer { isLoading = false }
-        
+
         cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
         microphonePermissionStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        // Refresh displays first since other refreshes may also rely on SCK 
-        await refreshDisplays()
-        
+
+        refreshDisplaysSilently()
+
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.refreshWindows() }
             group.addTask { await self.refreshCameras() }
             group.addTask { await self.refreshMicrophones() }
+            if includeScreenCaptureContent {
+                group.addTask { await self.refreshWindows() }
+            }
         }
+    }
+
+    /// Populates the display picker without touching ScreenCaptureKit. This never
+    /// triggers the macOS screen/audio recording prompt.
+    func refreshDisplaysSilently() {
+        var displayCount: UInt32 = 0
+        let countResult = CGGetActiveDisplayList(0, nil, &displayCount)
+        guard countResult == .success, displayCount > 0 else {
+            displays = []
+            screenPermissionGranted = CGPreflightScreenCaptureAccess()
+            lastError = DeviceEnumerationError.noDisplaysFound
+            return
+        }
+
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        let listResult = displayIDs.withUnsafeMutableBufferPointer { buffer in
+            CGGetActiveDisplayList(displayCount, buffer.baseAddress, &displayCount)
+        }
+
+        guard listResult == .success else {
+            displays = []
+            screenPermissionGranted = CGPreflightScreenCaptureAccess()
+            lastError = DeviceEnumerationError.noDisplaysFound
+            return
+        }
+
+        let discovered = displayIDs.prefix(Int(displayCount)).map { displayID in
+            Display(
+                id: displayID,
+                name: getDisplayName(for: displayID),
+                width: CGDisplayPixelsWide(displayID),
+                height: CGDisplayPixelsHigh(displayID),
+                isMain: displayID == CGMainDisplayID()
+            )
+        }.sorted { $0.isMain && !$1.isMain }
+
+        displays = discovered
+        screenPermissionGranted = CGPreflightScreenCaptureAccess()
+        lastError = discovered.isEmpty ? DeviceEnumerationError.noDisplaysFound : nil
     }
 
     /// Refresh displays using ScreenCaptureKit. Does NOT call
@@ -214,7 +268,7 @@ class DeviceManager: ObservableObject {
                     false,
                     onScreenWindowsOnly: false
                 )
-                
+
                 let discovered = content.displays.map { scDisplay in
                     Display(
                         id: scDisplay.displayID,
@@ -224,35 +278,31 @@ class DeviceManager: ObservableObject {
                         isMain: scDisplay.displayID == CGMainDisplayID()
                     )
                 }.sorted { $0.isMain && !$1.isMain }
-                
+
                 await MainActor.run {
                     self.displays = discovered
                     self.screenPermissionGranted = true
                     self.lastError = discovered.isEmpty ? DeviceEnumerationError.noDisplaysFound : nil
                 }
                 return
-                
+
             } catch {
-                let nsErr = error as NSError
-                let isPermissionError = (nsErr.domain == "com.apple.ScreenCaptureKit"
-                    && (nsErr.code == 3 || nsErr.code == -3801))
-                    || (nsErr.domain == NSCocoaErrorDomain && nsErr.code == 4)
-                
-                if isPermissionError {
+                if ScreenCapturePermissionClassifier.isPermissionDenied(error) {
                     await MainActor.run {
-                        self.screenPermissionGranted = false
-                        self.lastError = DeviceEnumerationError.screenCapturePermissionDenied
+                        let hasPermission = CGPreflightScreenCaptureAccess()
+                        self.screenPermissionGranted = hasPermission
+                        self.lastError = hasPermission ? nil : DeviceEnumerationError.screenCapturePermissionDenied
                     }
                     return
                 }
-                
+
                 // Transient error (daemon not ready, etc.) — back off and retry
                 let delay = UInt64(750_000_000) * UInt64(attempt + 1)
                 try? await Task.sleep(nanoseconds: delay)
             }
         }
     }
-    
+
     /// Refreshes window list using ScreenCaptureKit with retry logic
     func refreshWindows() async {
         for attempt in 0..<3 {
@@ -261,7 +311,7 @@ class DeviceManager: ObservableObject {
                     false,
                     onScreenWindowsOnly: true
                 )
-                
+
                 let windows = shareableContent.windows
                     .filter { shouldIncludeCaptureWindow($0) }
                     .map { scWindow in
@@ -281,7 +331,7 @@ class DeviceManager: ObservableObject {
                         )
                     }
                     .sorted { $0.applicationName < $1.applicationName }
-                
+
                 await MainActor.run {
                     self.windows = windows
                     // Optimistically set permission if we found windows
@@ -290,25 +340,27 @@ class DeviceManager: ObservableObject {
                     }
                 }
                 return
-                
+
             } catch {
                 if attempt < 2 {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     continue
                 }
-                
+
                 await MainActor.run {
                     self.windows = []
                 }
             }
         }
     }
-    
+
     func refreshCameras() async {
-        let authorized = await requestCameraPermission()
-        guard authorized else {
+        // Only enumerate if already authorized - don't auto-request
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        guard status == .authorized else {
             await MainActor.run {
                 self.cameras = []
+                self.cameraPermissionStatus = status
             }
             return
         }
@@ -337,12 +389,14 @@ class DeviceManager: ObservableObject {
             self.cameras = cameras
         }
     }
-    
+
     func refreshMicrophones() async {
-        let authorized = await requestMicrophonePermission()
-        guard authorized else {
+        // Only enumerate if already authorized - don't auto-request
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard status == .authorized else {
             await MainActor.run {
                 self.microphones = []
+                self.microphonePermissionStatus = status
             }
             return
         }
@@ -366,7 +420,7 @@ class DeviceManager: ObservableObject {
                 }
                 .unique()
                 .sorted()
-            
+
             let channelCount: Int
             if let audioFormat = device.formats.first(where: { $0.mediaType == .audio }) {
                 let desc = audioFormat.formatDescription
@@ -378,7 +432,7 @@ class DeviceManager: ObservableObject {
             } else {
                 channelCount = 0
             }
-            
+
             return Microphone(
                 id: device.uniqueID,
                 name: device.localizedName,
@@ -393,28 +447,28 @@ class DeviceManager: ObservableObject {
             self.microphones = microphones
         }
     }
-    
+
     func display(withID id: CGDirectDisplayID) -> Display? {
         displays.first { $0.id == id }
     }
-    
+
     func window(withID id: CGWindowID) -> CaptureWindow? {
         windows.first { $0.id == id }
     }
-    
+
     func camera(withID id: String) -> Camera? {
         cameras.first { $0.id == id }
     }
-    
+
     func microphone(withID id: String) -> Microphone? {
         microphones.first { $0.id == id }
     }
-    
+
     // MARK: - Permission Requests
-    
+
     func requestCameraPermission() async -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
-        
+
         switch status {
         case .authorized:
             cameraPermissionStatus = .authorized
@@ -430,10 +484,10 @@ class DeviceManager: ObservableObject {
             return false
         }
     }
-    
+
     func requestMicrophonePermission() async -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        
+
         switch status {
         case .authorized:
             microphonePermissionStatus = .authorized
@@ -449,9 +503,9 @@ class DeviceManager: ObservableObject {
             return false
         }
     }
-    
+
     // MARK: - Private Helpers
-    
+
     private func setupObservers() {
         NotificationCenter.default.addObserver(
             self,
@@ -459,17 +513,16 @@ class DeviceManager: ObservableObject {
             name: .AVCaptureDeviceWasConnected,
             object: nil
         )
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(deviceWasDisconnected),
             name: .AVCaptureDeviceWasDisconnected,
             object: nil
         )
-        
-        // Re-check displays whenever our app is foregrounded.
-        // This catches the case where the user toggled the permission in System Settings
-        // and then returns to the app — without this, we'd never see the change.
+
+        // Re-check local device state whenever our app is foregrounded. Do not call
+        // ScreenCaptureKit here; it can trigger the screen/audio recording prompt.
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(appDidBecomeActive),
@@ -477,50 +530,51 @@ class DeviceManager: ObservableObject {
             object: nil
         )
     }
-    
+
     @objc private func appDidBecomeActive(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier == Bundle.main.bundleIdentifier else { return }
-        
-        // Only auto-refresh if displays are currently missing
-        guard displays.isEmpty else { return }
-        
+
         Task {
-            await refreshDisplays()
+            await MainActor.run {
+                self.refreshDisplaysSilently()
+            }
+            await refreshCameras()
+            await refreshMicrophones()
         }
     }
-    
+
     @objc private func deviceWasConnected(_ notification: Notification) {
         Task {
             await refreshCameras()
             await refreshMicrophones()
         }
     }
-    
+
     @objc private func deviceWasDisconnected(_ notification: Notification) {
         Task {
             await refreshCameras()
             await refreshMicrophones()
         }
     }
-    
+
     private func shouldIncludeCaptureWindow(_ window: SCWindow) -> Bool {
         let area = CGFloat(window.frame.width) * CGFloat(window.frame.height)
         guard area >= minimumWindowArea else {
             return false
         }
-        
+
         let title = window.title?.lowercased() ?? ""
         guard !title.isEmpty else {
             return false
         }
-        
+
         for excluded in excludedWindowTitles {
             if title.contains(excluded.lowercased()) {
                 return false
             }
         }
-        
+
         if let bundleID = window.owningApplication?.bundleIdentifier {
             for excluded in excludedBundleIDs {
                 if bundleID.lowercased().contains(excluded.lowercased()) {
@@ -528,38 +582,38 @@ class DeviceManager: ObservableObject {
                 }
             }
         }
-        
+
         guard window.isOnScreen else {
             return false
         }
-        
+
         return true
     }
-    
+
     private func getDisplayName(for displayID: CGDirectDisplayID) -> String {
         if displayID == CGMainDisplayID() {
             return "Built-in Display"
         }
-        
-        if let screen = NSScreen.screens.first(where: { 
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID 
+
+        if let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
         }) {
             let screenName = screen.localizedName
             if !screenName.isEmpty && screenName != "Unknown" {
                 return screenName
             }
         }
-        
+
         return "Display \(displayID)"
     }
-    
+
     private func getAppIcon(for bundleID: String?) -> NSImage? {
         guard let bundleID = bundleID else { return nil }
-        
+
         if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             return NSWorkspace.shared.icon(forFile: appURL.path)
         }
-        
+
         return nil
     }
 }

@@ -23,10 +23,31 @@ struct RecordingSessionConfiguration {
     let selectedCamera: Camera?
     let quality: RecordingQuality
     let frameRate: FrameRate
-    
+    let countdownSeconds: Int
+
     enum ScreenRecordTarget {
         case fullScreen(Display)
         case window(CaptureWindow)
+    }
+
+    init(
+        videoName: String,
+        recordTarget: ScreenRecordTarget,
+        includeSystemAudio: Bool,
+        selectedMicrophone: Microphone?,
+        selectedCamera: Camera?,
+        quality: RecordingQuality,
+        frameRate: FrameRate,
+        countdownSeconds: Int = 0
+    ) {
+        self.videoName = videoName
+        self.recordTarget = recordTarget
+        self.includeSystemAudio = includeSystemAudio
+        self.selectedMicrophone = selectedMicrophone
+        self.selectedCamera = selectedCamera
+        self.quality = quality
+        self.frameRate = frameRate
+        self.countdownSeconds = max(0, countdownSeconds)
     }
 }
 
@@ -40,13 +61,38 @@ struct RecordingResult {
     let duration: TimeInterval
     let startTime: Date
     let endTime: Date
-    
+    let warnings: [RecordingWarning]
+
+    init(
+        videoName: String,
+        screenRecordingURL: URL?,
+        microphoneRecordingURL: URL?,
+        cameraRecordingURL: URL?,
+        duration: TimeInterval,
+        startTime: Date,
+        endTime: Date,
+        warnings: [RecordingWarning] = []
+    ) {
+        self.videoName = videoName
+        self.screenRecordingURL = screenRecordingURL
+        self.microphoneRecordingURL = microphoneRecordingURL
+        self.cameraRecordingURL = cameraRecordingURL
+        self.duration = duration
+        self.startTime = startTime
+        self.endTime = endTime
+        self.warnings = warnings
+    }
+
     var allURLs: [URL] {
         [screenRecordingURL, microphoneRecordingURL, cameraRecordingURL].compactMap { $0 }
     }
-    
+
     var isComplete: Bool {
         screenRecordingURL != nil
+    }
+
+    var warningSummary: String {
+        warnings.map(\.displayText).joined(separator: "\n")
     }
 }
 
@@ -60,7 +106,7 @@ enum CoordinatorState: Equatable {
     case stopping
     case failed(Error)
     case finished(RecordingResult)
-    
+
     static func == (lhs: CoordinatorState, rhs: CoordinatorState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle), (.preparing, .preparing), (.stopping, .stopping):
@@ -77,17 +123,17 @@ enum CoordinatorState: Equatable {
             return false
         }
     }
-    
+
     var isRecording: Bool {
         if case .recording = self { return true }
         return false
     }
-    
+
     var isPaused: Bool {
         if case .paused = self { return true }
         return false
     }
-    
+
     var canStart: Bool {
         switch self {
         case .idle, .failed, .finished:
@@ -96,7 +142,7 @@ enum CoordinatorState: Equatable {
             return false
         }
     }
-    
+
     var startTime: Date? {
         switch self {
         case .recording(let startTime), .paused(let startTime, _):
@@ -117,8 +163,8 @@ enum CoordinatorError: Error, LocalizedError {
     case cameraRecorderFailed(Error)
     case noScreenTargetSelected
     case syncClockFailed
-    case partialFailure([String: Error])
-    
+    case partialFailure([RecordingComponent: Error])
+
     var errorDescription: String? {
         switch self {
         case .alreadyRecording:
@@ -136,7 +182,9 @@ enum CoordinatorError: Error, LocalizedError {
         case .syncClockFailed:
             return "Failed to initialize synchronization clock."
         case .partialFailure(let errors):
-            let errorList = errors.map { "\($0.key): \($0.value.localizedDescription)" }.joined(separator: "\n")
+            let errorList = errors
+                .map { "\($0.key.displayName): \($0.value.localizedDescription)" }
+                .joined(separator: "\n")
             return "Partial recording failure:\n\(errorList)"
         }
     }
@@ -146,56 +194,56 @@ enum CoordinatorError: Error, LocalizedError {
 
 @MainActor
 class RecordingCoordinator: NSObject, ObservableObject {
-    
+
     // MARK: - Published Properties
-    
+
     @Published private(set) var state: CoordinatorState = .idle
     @Published private(set) var currentDuration: TimeInterval = 0
     @Published private(set) var isStopping = false
-    
+
     // Individual recorder states for UI binding
     @Published var screenRecorderState: RecordingState = .idle
     @Published var micRecorderState: MicRecorderState = .idle
     @Published var cameraRecorderState: CameraRecorderState = .idle
-    
+
     // MARK: - Recorders
-    
+
     let screenRecorder = ScreenRecorder()
     let micRecorder = MicRecorder()
     let cameraRecorder = CameraRecorder()
-    
+
     // MARK: - Private Properties
-    
+
     private var currentConfiguration: RecordingSessionConfiguration?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    
+
     // Shared sync clock
     private var syncClock: CMClock?
     private var syncTime: CMTime?
-    
+
     // Recording results
     private var screenResultURL: URL?
     private var micResultURL: URL?
     private var cameraResultURL: URL?
-    
+
     // Error tracking
-    private var recorderErrors: [String: Error] = [:]
-    
+    private var recorderErrors: [RecordingComponent: Error] = [:]
+
     // MARK: - Computed Properties
-    
+
     var isCurrentlyRecording: Bool {
         state.isRecording
     }
-    
+
     var formattedDuration: String {
         let hours = Int(currentDuration) / 3600
         let minutes = Int(currentDuration) / 60 % 60
         let seconds = Int(currentDuration) % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
     }
-    
+
     var activeRecorders: [String] {
         var active: [String] = []
         if screenRecorderState.isRecording { active.append("Screen") }
@@ -203,14 +251,14 @@ class RecordingCoordinator: NSObject, ObservableObject {
         if cameraRecorderState.isRecording { active.append("Camera") }
         return active
     }
-    
+
     // MARK: - Initialization
-    
+
     override init() {
         super.init()
         setupBindings()
     }
-    
+
     private func setupBindings() {
         // Bind individual recorder states to coordinator
         screenRecorder.$state
@@ -220,14 +268,14 @@ class RecordingCoordinator: NSObject, ObservableObject {
                 self?.handlePrimaryRecorderStateChange(state)
             }
             .store(in: &cancellables)
-        
+
         micRecorder.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.micRecorderState = state
             }
             .store(in: &cancellables)
-        
+
         cameraRecorder.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -252,9 +300,9 @@ class RecordingCoordinator: NSObject, ObservableObject {
             cleanup()
         }
     }
-    
+
     // MARK: - Public Methods
-    
+
     /// Starts a synchronized recording session with all configured recorders
     func start(configuration: RecordingSessionConfiguration) async throws {
         guard state.canStart else {
@@ -263,36 +311,36 @@ class RecordingCoordinator: NSObject, ObservableObject {
             }
             return
         }
-        
+
         state = .preparing
         currentConfiguration = configuration
         recorderErrors.removeAll()
         screenResultURL = nil
         micResultURL = nil
         cameraResultURL = nil
-        
+
         coordLogger.info("RecordingCoordinator: Starting recording session...")
         coordLogger.info("RecordingCoordinator: Video name = \(configuration.videoName)")
-        
+
         do {
             // Initialize shared sync clock using host time clock
             syncClock = CMClockGetHostTimeClock()
             guard let clock = syncClock else {
                 throw CoordinatorError.syncClockFailed
             }
-            
+
             // Get the current time from the sync clock
             let time = CMClockGetTime(clock)
             syncTime = time
-            
+
             // Start all recorders concurrently
             try await startAllRecorders(configuration: configuration, syncTime: time)
-            
+
             recordingStartTime = Date()
             state = .recording(startTime: recordingStartTime!)
             startDurationTimer()
             coordLogger.info("RecordingCoordinator: Recording started successfully")
-            
+
         } catch {
             coordLogger.info("RecordingCoordinator: Failed to start - \(error)")
             // If any recorder failed to start, stop the others
@@ -302,25 +350,25 @@ class RecordingCoordinator: NSObject, ObservableObject {
             throw error
         }
     }
-    
+
     /// Stops all recorders and waits for completion
     func stop() async throws -> RecordingResult {
         guard case .recording(let startTime) = state else {
             throw CoordinatorError.notRecording
         }
-        
+
         state = .stopping
         isStopping = true
         stopDurationTimer()
-        
+
         // Stop all recorders and collect results
         await stopAllRecordersAndCollectResults()
-        
+
         let endTime = Date()
         let duration = endTime.timeIntervalSince(startTime)
-        
+
         isStopping = false
-        
+
         // Check if there were any failures
         if !recorderErrors.isEmpty {
             // At least screen recording should succeed
@@ -330,7 +378,7 @@ class RecordingCoordinator: NSObject, ObservableObject {
                 throw CoordinatorError.partialFailure(recorderErrors)
             }
         }
-        
+
         // Create result
         let result = RecordingResult(
             videoName: currentConfiguration?.videoName ?? "Untitled",
@@ -339,83 +387,84 @@ class RecordingCoordinator: NSObject, ObservableObject {
             cameraRecordingURL: cameraResultURL,
             duration: duration,
             startTime: startTime,
-            endTime: endTime
+            endTime: endTime,
+            warnings: recordingWarnings(from: recorderErrors)
         )
-        
+
         state = .finished(result)
         cleanup()
-        
+
         return result
     }
-    
+
     /// Discards the current recording session without saving
     func discard() async {
         stopDurationTimer()
-        
+
         // Stop all recorders
         await stopAllRecorders()
-        
+
         // Discard individual recordings
         await screenRecorder.discardRecording()
         await micRecorder.discardRecording()
         await cameraRecorder.discardRecording()
-        
+
         cleanup()
         state = .idle
     }
-    
+
     /// Returns a preview image from the camera recorder
     func getCameraPreview() -> CGImage? {
         cameraRecorder.currentFrame
     }
-    
+
     // MARK: - Pause/Resume
-    
+
     /// Pauses all active recorders
     func pause() async {
         guard case .recording(let startTime) = state else { return }
-        
+
         // Calculate current duration for when we resume
         let currentDuration = Date().timeIntervalSince(startTime)
-        
+
         // Pause all recorders
         screenRecorder.pauseRecording()
         micRecorder.pauseRecording()
         cameraRecorder.pauseRecording()
-        
+
         // Stop the timer
         stopDurationTimer()
-        
+
         // Update state
         state = .paused(startTime: startTime, pausedDuration: currentDuration)
     }
-    
+
     /// Resumes all paused recorders
     func resume() async {
         guard case .paused(_, let pausedDuration) = state else { return }
-        
+
         // Calculate new start time that accounts for the paused duration
         // This ensures the timer continues from where it left off
         let newStartTime = Date().addingTimeInterval(-pausedDuration)
-        
+
         // Resume all recorders
         screenRecorder.resumeRecording()
         micRecorder.resumeRecording()
         cameraRecorder.resumeRecording()
-        
+
         // Restart the timer
         recordingStartTime = newStartTime
         startDurationTimer()
-        
+
         // Update state
         state = .recording(startTime: newStartTime)
     }
-    
+
     // MARK: - Private Methods
-    
+
     private func startAllRecorders(configuration: RecordingSessionConfiguration, syncTime: CMTime) async throws {
         // Create configurations for each recorder
-        
+
         let screenTarget: RecordingConfiguration.RecordTarget
         switch configuration.recordTarget {
         case .fullScreen(let display):
@@ -436,10 +485,10 @@ class RecordingCoordinator: NSObject, ObservableObject {
             quality: configuration.quality,
             frameRate: configuration.frameRate
         )
-        
+
         // Start screen recorder first (it's the primary)
         try await screenRecorder.startRecording(configuration: screenConfig)
-        
+
         // Start other recorders concurrently - optional recorder failures are tracked but do not fail the session.
         await withTaskGroup(of: Void.self) { group in
             // Microphone
@@ -451,12 +500,12 @@ class RecordingCoordinator: NSObject, ObservableObject {
                     )
                     if let error = await self.startOptionalMicrophoneRecorder(with: micConfig) {
                         await MainActor.run {
-                            self.recorderErrors["Microphone"] = error
+                            self.recorderErrors[.microphone] = error
                         }
                     }
                 }
             }
-            
+
             // Camera
             if let camera = configuration.selectedCamera {
                 group.addTask {
@@ -470,12 +519,12 @@ class RecordingCoordinator: NSObject, ObservableObject {
                     )
                     if let error = await self.startOptionalCameraRecorder(configuration: cameraConfig, syncTime: syncTime) {
                         await MainActor.run {
-                            self.recorderErrors["Camera"] = error
+                            self.recorderErrors[.camera] = error
                         }
                     }
                 }
             }
-            
+
             for await _ in group {
                 // Each completion is handled individually.
             }
@@ -502,91 +551,89 @@ class RecordingCoordinator: NSObject, ObservableObject {
             return error
         }
     }
-    
+
     private func stopAllRecorders() async {
         // Stop all recorders concurrently
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 _ = try? await self.screenRecorder.stopRecording()
             }
-            
+
             group.addTask {
                 _ = try? await self.micRecorder.stopRecording()
             }
-            
+
             group.addTask {
                 _ = try? await self.cameraRecorder.stopRecording()
             }
         }
     }
-    
+
     private func stopAllRecordersAndCollectResults() async {
-        await withTaskGroup(of: (String, URL?).self) { group in
+        await withTaskGroup(of: (RecordingComponent, URL?).self) { group in
             // Stop screen recorder
             group.addTask {
                 do {
                     let url = try await self.screenRecorder.stopRecording()
-                    return ("Screen", url)
+                    return (.screen, url)
                 } catch {
                     await MainActor.run {
-                        self.recorderErrors["Screen"] = error
+                        self.recorderErrors[.screen] = error
                     }
-                    return ("Screen", nil)
+                    return (.screen, nil)
                 }
             }
-            
+
             // Stop mic recorder if it was started
             group.addTask {
                 let micIsActive = await self.micRecorder.isCurrentlyRecording
                 if micIsActive {
                     do {
                         let url = try await self.micRecorder.stopRecording()
-                        return ("Microphone", url)
+                        return (.microphone, url)
                     } catch {
                         await MainActor.run {
-                            self.recorderErrors["Microphone"] = error
+                            self.recorderErrors[.microphone] = error
                         }
-                        return ("Microphone", nil)
+                        return (.microphone, nil)
                     }
                 }
-                return ("Microphone", nil)
+                return (.microphone, nil)
             }
-            
+
             // Stop camera recorder if it was started
             group.addTask {
                 let camIsActive = await self.cameraRecorder.isCurrentlyRecording
                 if camIsActive {
                     do {
                         let url = try await self.cameraRecorder.stopRecording()
-                        return ("Camera", url)
+                        return (.camera, url)
                     } catch {
                         await MainActor.run {
-                            self.recorderErrors["Camera"] = error
+                            self.recorderErrors[.camera] = error
                         }
-                        return ("Camera", nil)
+                        return (.camera, nil)
                     }
                 }
-                return ("Camera", nil)
+                return (.camera, nil)
             }
-            
+
             // Collect results
-            for await (name, url) in group {
+            for await (component, url) in group {
                 await MainActor.run {
-                    switch name {
-                    case "Screen":
+                    switch component {
+                    case .screen:
                         self.screenResultURL = url
-                    case "Microphone":
+                    case .microphone:
                         self.micResultURL = url
-                    case "Camera":
+                    case .camera:
                         self.cameraResultURL = url
-                    default:
-                        break
                     }
                 }
             }
         }
     }
-    
+
     private func startDurationTimer() {
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in
@@ -596,17 +643,29 @@ class RecordingCoordinator: NSObject, ObservableObject {
             }
         }
     }
-    
+
     private func stopDurationTimer() {
         durationTimer?.invalidate()
         durationTimer = nil
     }
-    
+
     private func cleanup() {
         currentConfiguration = nil
         recordingStartTime = nil
         syncClock = nil
         syncTime = nil
+    }
+
+    private func recordingWarnings(from errors: [RecordingComponent: Error]) -> [RecordingWarning] {
+        errors
+            .filter { $0.key != .screen }
+            .map { component, error in
+                RecordingWarning(
+                    component: component,
+                    message: error.localizedDescription
+                )
+            }
+            .sorted { $0.component.rawValue < $1.component.rawValue }
     }
 
     private var isSessionActive: Bool {

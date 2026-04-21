@@ -7,11 +7,21 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AABB00F1000000000001 /* CameraPreviewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00F1000000000001 /* CameraPreviewManager.swift */; };
+		AABB00F2000000000001 /* MicMonitorManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00F2000000000001 /* MicMonitorManager.swift */; };
+		AABB00F3000000000001 /* ScreenPreviewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00F3000000000001 /* ScreenPreviewManager.swift */; };
+		AABB0100000000000001 /* RecordingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0100000000000001 /* RecordingSupport.swift */; };
+		AABB0101000000000001 /* AppDelegate+StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0101000000000001 /* AppDelegate+StatusBar.swift */; };
+		AABB0102000000000001 /* AppDelegate+Windows.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0102000000000001 /* AppDelegate+Windows.swift */; };
+		AABB0103000000000001 /* AppDelegate+Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0103000000000001 /* AppDelegate+Notifications.swift */; };
+		AABB0200000000000001 /* RecordingSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0200000000000001 /* RecordingSupportTests.swift */; };
+
 		AABB0001000000000001 /* SmoothyRECApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0001000000000001 /* SmoothyRECApp.swift */; };
 		AABB0002000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0002000000000001 /* ContentView.swift */; };
 		AABB0003000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0003000000000001 /* SettingsView.swift */; };
 		AABB0004000000000001 /* ScreenRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0004000000000001 /* ScreenRecorder.swift */; };
 		AABB0005000000000001 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0005000000000001 /* MainWindowView.swift */; };
+		AABB00FF000000000001 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00FF000000000001 /* OnboardingView.swift */; };
 		AABB0006000000000001 /* DeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0006000000000001 /* DeviceManager.swift */; };
 		AABB0007000000000001 /* MicRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0007000000000001 /* MicRecorder.swift */; };
 		AABB0008000000000001 /* CameraRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0008000000000001 /* CameraRecorder.swift */; };
@@ -24,7 +34,29 @@
 		AABB000F000000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAFF0010000000000001 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		AAPX0200000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AAPR0001000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AATT0001000000000001;
+			remoteInfo = SmoothyREC;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		AAFF00F1000000000001 /* CameraPreviewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewManager.swift; sourceTree = "<group>"; };
+		AAFF00F2000000000001 /* MicMonitorManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicMonitorManager.swift; sourceTree = "<group>"; };
+		AAFF00F3000000000001 /* ScreenPreviewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPreviewManager.swift; sourceTree = "<group>"; };
+		AAFF0100000000000001 /* RecordingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSupport.swift; sourceTree = "<group>"; };
+		AAFF0101000000000001 /* AppDelegate+StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+StatusBar.swift"; sourceTree = "<group>"; };
+		AAFF0102000000000001 /* AppDelegate+Windows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Windows.swift"; sourceTree = "<group>"; };
+		AAFF0103000000000001 /* AppDelegate+Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Notifications.swift"; sourceTree = "<group>"; };
+		AAFF0200000000000001 /* RecordingSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSupportTests.swift; sourceTree = "<group>"; };
+		AAFF0201000000000001 /* SmoothyRECTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SmoothyRECTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+
+		AAFF00FF000000000001 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+
 		AAFF0000000000000001 /* SmoothyREC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SmoothyREC.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAFF0001000000000001 /* SmoothyRECApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmoothyRECApp.swift; sourceTree = "<group>"; };
 		AAFF0002000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -53,6 +85,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AAPP0201000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -60,6 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				AAGG0002000000000001 /* SmoothyREC */,
+				AAGG0200000000000001 /* SmoothyRECTests */,
 				AAGG0003000000000001 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -68,14 +108,22 @@
 			isa = PBXGroup;
 			children = (
 				AAFF0001000000000001 /* SmoothyRECApp.swift */,
+				AAFF0101000000000001 /* AppDelegate+StatusBar.swift */,
+				AAFF0102000000000001 /* AppDelegate+Windows.swift */,
+				AAFF0103000000000001 /* AppDelegate+Notifications.swift */,
 				AAFF0002000000000001 /* ContentView.swift */,
 				AAFF0003000000000001 /* SettingsView.swift */,
 				AAFF0004000000000001 /* ScreenRecorder.swift */,
 				AAFF0005000000000001 /* MainWindowView.swift */,
+				AAFF00FF000000000001 /* OnboardingView.swift */,
+				AAFF00F3000000000001 /* ScreenPreviewManager.swift */,
+				AAFF00F1000000000001 /* CameraPreviewManager.swift */,
+				AAFF00F2000000000001 /* MicMonitorManager.swift */,
 				AAFF0006000000000001 /* DeviceManager.swift */,
 				AAFF0007000000000001 /* MicRecorder.swift */,
 				AAFF0008000000000001 /* CameraRecorder.swift */,
 				AAFF0009000000000001 /* RecordingCoordinator.swift */,
+				AAFF0100000000000001 /* RecordingSupport.swift */,
 				AAFF000A000000000001 /* RecordingStatusView.swift */,
 				AAFF000B000000000001 /* CompletionView.swift */,
 				AAFF000C000000000001 /* SettingsManager.swift */,
@@ -92,8 +140,17 @@
 			isa = PBXGroup;
 			children = (
 				AAFF0000000000000001 /* SmoothyREC.app */,
+				AAFF0201000000000001 /* SmoothyRECTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		AAGG0200000000000001 /* SmoothyRECTests */ = {
+			isa = PBXGroup;
+			children = (
+				AAFF0200000000000001 /* RecordingSupportTests.swift */,
+			);
+			path = SmoothyRECTests;
 			sourceTree = "<group>";
 		};
 		AAFF000F000000000001 /* Preview Content */ = {
@@ -124,6 +181,24 @@
 			productReference = AAFF0000000000000001 /* SmoothyREC.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AATT0200000000000001 /* SmoothyRECTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AACL0200000000000001 /* Build configuration list for PBXNativeTarget "SmoothyRECTests" */;
+			buildPhases = (
+				AAPP0200000000000001 /* Sources */,
+				AAPP0201000000000001 /* Frameworks */,
+				AAPP0202000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AATD0200000000000001 /* PBXTargetDependency */,
+			);
+			name = SmoothyRECTests;
+			productName = SmoothyRECTests;
+			productReference = AAFF0201000000000001 /* SmoothyRECTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -136,6 +211,10 @@
 				TargetAttributes = {
 					AATT0001000000000001 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					AATT0200000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = AATT0001000000000001;
 					};
 				};
 			};
@@ -153,6 +232,7 @@
 			projectRoot = "";
 			targets = (
 				AATT0001000000000001 /* SmoothyREC */,
+				AATT0200000000000001 /* SmoothyRECTests */,
 			);
 		};
 /* End PBXProject section */
@@ -167,6 +247,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AAPP0202000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -175,14 +262,22 @@
 			buildActionMask = 2147483647;
 			files = (
 				AABB0001000000000001 /* SmoothyRECApp.swift in Sources */,
+				AABB0101000000000001 /* AppDelegate+StatusBar.swift in Sources */,
+				AABB0102000000000001 /* AppDelegate+Windows.swift in Sources */,
+				AABB0103000000000001 /* AppDelegate+Notifications.swift in Sources */,
 				AABB0002000000000001 /* ContentView.swift in Sources */,
 				AABB0003000000000001 /* SettingsView.swift in Sources */,
 				AABB0004000000000001 /* ScreenRecorder.swift in Sources */,
 				AABB0005000000000001 /* MainWindowView.swift in Sources */,
+				AABB00FF000000000001 /* OnboardingView.swift in Sources */,
+				AABB00F3000000000001 /* ScreenPreviewManager.swift in Sources */,
+				AABB00F1000000000001 /* CameraPreviewManager.swift in Sources */,
+				AABB00F2000000000001 /* MicMonitorManager.swift in Sources */,
 				AABB0006000000000001 /* DeviceManager.swift in Sources */,
 				AABB0007000000000001 /* MicRecorder.swift in Sources */,
 				AABB0008000000000001 /* CameraRecorder.swift in Sources */,
 				AABB0009000000000001 /* RecordingCoordinator.swift in Sources */,
+				AABB0100000000000001 /* RecordingSupport.swift in Sources */,
 				AABB000A000000000001 /* RecordingStatusView.swift in Sources */,
 				AABB000B000000000001 /* CompletionView.swift in Sources */,
 				AABB000C000000000001 /* SettingsManager.swift in Sources */,
@@ -190,7 +285,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AAPP0200000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABB0200000000000001 /* RecordingSupportTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AATD0200000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AATT0001000000000001 /* SmoothyREC */;
+			targetProxy = AAPX0200000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AABC0001000000000001 /* Debug */ = {
@@ -367,6 +478,50 @@
 			};
 			name = Release;
 		};
+		AABC0201000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smoothyrec.SmoothyRECTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SmoothyREC.app/Contents/MacOS/SmoothyREC";
+			};
+			name = Debug;
+		};
+		AABC0202000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smoothyrec.SmoothyRECTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SmoothyREC.app/Contents/MacOS/SmoothyREC";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -384,6 +539,15 @@
 			buildConfigurations = (
 				AABC0003000000000001 /* Debug */,
 				AABC0004000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AACL0200000000000001 /* Build configuration list for PBXNativeTarget "SmoothyRECTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABC0201000000000001 /* Debug */,
+				AABC0202000000000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

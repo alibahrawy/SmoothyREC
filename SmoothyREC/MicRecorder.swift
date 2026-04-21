@@ -6,8 +6,11 @@
 //
 
 import Foundation
-import AVFoundation
-import CoreMedia
+@preconcurrency import AVFoundation
+@preconcurrency import CoreMedia
+import os.log
+
+private let micLogger = Logger(subsystem: "com.smoothyrec.SmoothyREC", category: "MicRecorder")
 
 // MARK: - Microphone Configuration
 
@@ -28,7 +31,7 @@ enum MicRecorderState: Equatable {
     case stopping
     case failed(Error)
     case finished(URL)
-    
+
     static func == (lhs: MicRecorderState, rhs: MicRecorderState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle), (.preparing, .preparing), (.stopping, .stopping):
@@ -43,7 +46,7 @@ enum MicRecorderState: Equatable {
             return false
         }
     }
-    
+
     var isRecording: Bool {
         if case .recording = self { return true }
         return false
@@ -67,12 +70,13 @@ enum MicRecorderError: Error, LocalizedError {
     case assetWriterCreationFailed
     case assetWriterStartFailed
     case invalidOutputURL
+    case outputFileSetupFailed(String)
     case captureSessionSetupFailed
     case inputDeviceNotAvailable
     case encodingFailed(String)
     case alreadyRecording
     case notRecording
-    
+
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
@@ -85,6 +89,8 @@ enum MicRecorderError: Error, LocalizedError {
             return "Failed to start audio encoding."
         case .invalidOutputURL:
             return "Invalid output file location."
+        case .outputFileSetupFailed(let detail):
+            return "Could not prepare the microphone output file. \(detail)"
         case .captureSessionSetupFailed:
             return "Failed to setup microphone capture session."
         case .inputDeviceNotAvailable:
@@ -103,73 +109,73 @@ enum MicRecorderError: Error, LocalizedError {
 
 @MainActor
 class MicRecorder: NSObject, ObservableObject {
-    
+
     // MARK: - Published Properties
-    
+
     @Published private(set) var state: MicRecorderState = .idle
     @Published private(set) var currentDuration: TimeInterval = 0
     @Published private(set) var fileSize: Int64 = 0
     @Published private(set) var audioLevel: Float = -160.0  // dB, -160 = silence
-    
+
     // MARK: - Private Properties
-    
+
     private var captureSession: AVCaptureSession?
     private var audioInput: AVCaptureDeviceInput?
     private var audioOutput: AVCaptureAudioDataOutput?
-    
+
     private struct RecorderState {
         var assetWriter: AVAssetWriter?
         var assetWriterInput: AVAssetWriterInput?
         var isRecording = false
         var hasStartedWriting = false
     }
-    
+
     nonisolated(unsafe) private var recorderState = RecorderState()
     private let stateLock = NSLock()
-    
+
     private var currentConfiguration: MicrophoneConfiguration?
     private var outputURL: URL?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
-    
+
     private let sessionQueue = DispatchQueue(label: "com.smoothyrec.micrecorder", qos: .userInitiated)
-    
+
     nonisolated private func updateState<T>(_ block: (inout RecorderState) -> T) -> T {
         stateLock.lock()
         defer { stateLock.unlock() }
         return block(&recorderState)
     }
-    
+
     nonisolated private func readState<T>(_ block: (RecorderState) -> T) -> T {
         stateLock.lock()
         defer { stateLock.unlock() }
         return block(recorderState)
     }
-    
+
     // Audio level metering
     private var audioLevelTimer: Timer?
-    
+
     // MARK: - Computed Properties
-    
+
     var isCurrentlyRecording: Bool {
         state.isRecording
     }
-    
+
     var outputFileURL: URL? {
         outputURL
     }
-    
+
     var formattedDuration: String {
         let hours = Int(currentDuration) / 3600
         let minutes = Int(currentDuration) / 60 % 60
         let seconds = Int(currentDuration) % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
     }
-    
+
     var formattedFileSize: String {
         ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
     }
-    
+
     var formattedAudioLevel: String {
         if audioLevel < -60 {
             return "—"
@@ -177,9 +183,9 @@ class MicRecorder: NSObject, ObservableObject {
             return String(format: "%.1f dB", audioLevel)
         }
     }
-    
+
     // MARK: - Public Methods
-    
+
     /// Starts microphone recording with the given configuration
     func startRecording(configuration: MicrophoneConfiguration) async throws {
         guard state.canStart else {
@@ -188,80 +194,80 @@ class MicRecorder: NSObject, ObservableObject {
             }
             return
         }
-        
+
         state = .preparing
         currentConfiguration = configuration
-        
+
         do {
             try await checkMicrophonePermission()
-            
+
             try setupOutputFile(configuration: configuration)
-            
+
             try setupAssetWriter(configuration: configuration)
-            
+
             try setupCaptureSession(configuration: configuration)
-            
+
             try await startCaptureSession()
-            
+
             recordingStartTime = Date()
             state = .recording(startTime: recordingStartTime!)
             startDurationTimer()
             startAudioLevelMetering()
-            
+
         } catch {
             state = .failed(error)
             await cleanup()
             throw error
         }
     }
-    
+
     func stopRecording() async throws -> URL {
         let wasRecording = readState { $0.isRecording }
         guard wasRecording else {
             throw MicRecorderError.notRecording
         }
-        
+
         state = .stopping
         stopDurationTimer()
         stopAudioLevelMetering()
-        
+
         await stopCaptureSession()
-        
+
         try await finishWriting()
-        
+
         guard let outputURL = outputURL else {
             throw MicRecorderError.invalidOutputURL
         }
-        
+
         if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path) {
             fileSize = attributes[.size] as? Int64 ?? 0
         }
-        
+
         state = .finished(outputURL)
         await cleanup()
-        
+
         return outputURL
     }
-    
+
     /// Discards the current recording without saving
     func discardRecording() async {
         stopDurationTimer()
         stopAudioLevelMetering()
         await stopCaptureSession()
-        
+
         if let outputURL = outputURL {
             try? FileManager.default.removeItem(at: outputURL)
         }
-        
+
         await cleanup()
         state = .idle
     }
-    
+
     // MARK: - Setup Methods
-    
+
     private func checkMicrophonePermission() async throws {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        
+
         switch status {
         case .authorized:
             return
@@ -276,48 +282,38 @@ class MicRecorder: NSObject, ObservableObject {
             throw MicRecorderError.permissionDenied
         }
     }
-    
+
     private func setupOutputFile(configuration: MicrophoneConfiguration) throws {
-        let fileManager = FileManager.default
-        
-        // Get output directory from settings (or default)
         guard let outputDirectory = SettingsManager.shared.effectiveOutputFolder else {
             throw MicRecorderError.invalidOutputURL
         }
-        
-        // Create output directory if needed
-        try? fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        
-        // Generate filename: VideoName_mic_YYYY-MM-DD_HH-MM-SS.m4a
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let dateString = dateFormatter.string(from: Date())
-        
-        let sanitizedName = sanitizeFileName(configuration.videoName)
-        let filename = "\(sanitizedName)_mic_\(dateString).m4a"
-        
-        outputURL = outputDirectory.appendingPathComponent(filename)
-        
-        // Remove existing file if present
-        if let outputURL = outputURL, fileManager.fileExists(atPath: outputURL.path) {
-            try fileManager.removeItem(at: outputURL)
+
+        do {
+            outputURL = try RecordingOutputFileResolver.preparedOutputURL(
+                videoName: configuration.videoName,
+                component: .microphone,
+                fileExtension: "m4a",
+                outputDirectory: outputDirectory
+            )
+        } catch {
+            throw MicRecorderError.outputFileSetupFailed(error.localizedDescription)
         }
     }
-    
+
     private func setupAssetWriter(configuration: MicrophoneConfiguration) throws {
         guard let outputURL = outputURL else {
             throw MicRecorderError.invalidOutputURL
         }
-        
+
         let writer: AVAssetWriter
         do {
             writer = try AVAssetWriter(url: outputURL, fileType: .m4a)
         } catch {
             throw MicRecorderError.assetWriterCreationFailed
         }
-        
+
         writer.shouldOptimizeForNetworkUse = false
-        
+
         let audioSettings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: configuration.sampleRate,
@@ -325,112 +321,115 @@ class MicRecorder: NSObject, ObservableObject {
             AVEncoderBitRateKey: configuration.bitrate,
             AVEncoderAudioQualityKey: AVAudioQuality.max.rawValue
         ]
-        
+
         let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         input.expectsMediaDataInRealTime = true
-        
+
         if writer.canAdd(input) {
             writer.add(input)
         } else {
             throw MicRecorderError.assetWriterCreationFailed
         }
-        
+
         updateState { state in
             state.assetWriter = writer
             state.assetWriterInput = input
         }
     }
-    
+
     private func setupCaptureSession(configuration: MicrophoneConfiguration) throws {
         // Find the AVCaptureDevice for the selected microphone
         guard let device = AVCaptureDevice(uniqueID: configuration.selectedMicrophone.uniqueID) else {
             throw MicRecorderError.inputDeviceNotAvailable
         }
-        
+
         // Create capture session
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .high
-        
+
         // Create input
         do {
             audioInput = try AVCaptureDeviceInput(device: device)
         } catch {
             throw MicRecorderError.captureSessionSetupFailed
         }
-        
+
         // Add input to session
         guard let audioInput = audioInput else {
             throw MicRecorderError.captureSessionSetupFailed
         }
-        
+
         if captureSession?.canAddInput(audioInput) == true {
             captureSession?.addInput(audioInput)
         } else {
             throw MicRecorderError.captureSessionSetupFailed
         }
-        
+
         // Create output
         audioOutput = AVCaptureAudioDataOutput()
         audioOutput?.setSampleBufferDelegate(self, queue: sessionQueue)
-        
+
         guard let audioOutput = audioOutput else {
             throw MicRecorderError.captureSessionSetupFailed
         }
-        
+
         if captureSession?.canAddOutput(audioOutput) == true {
             captureSession?.addOutput(audioOutput)
         } else {
             throw MicRecorderError.captureSessionSetupFailed
         }
-        
+
         // Configure audio settings for capture
         // Note: Manual gain control is not available on macOS
     }
-    
+
     private func startCaptureSession() async throws {
         guard let captureSession = captureSession else {
             throw MicRecorderError.captureSessionSetupFailed
         }
-        
+
         let writer = readState { $0.assetWriter }
         guard let writer = writer, writer.startWriting() else {
             throw MicRecorderError.assetWriterStartFailed
         }
-        
+
         await withCheckedContinuation { continuation in
+            nonisolated(unsafe) let captureSession = captureSession
             sessionQueue.async {
                 captureSession.startRunning()
                 continuation.resume()
             }
         }
-        
+
         updateState { $0.isRecording = true }
     }
-    
+
     private func stopCaptureSession() async {
         guard let captureSession = captureSession else { return }
-        
+
         await withCheckedContinuation { continuation in
+            nonisolated(unsafe) let captureSession = captureSession
             sessionQueue.async {
                 captureSession.stopRunning()
                 continuation.resume()
             }
         }
-        
+
         updateState { $0.isRecording = false }
     }
-    
+
     // MARK: - Cleanup
-    
+
     private func finishWriting() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             sessionQueue.async {
                 let writer = self.readState { $0.assetWriter }
                 let hasStarted = self.readState { $0.hasStartedWriting }
-                
+
                 self.updateState { $0.assetWriterInput?.markAsFinished() }
-                
+
                 if let writer = writer, writer.status == .writing, hasStarted {
+                    nonisolated(unsafe) let writer = writer
                     writer.finishWriting {
                         if writer.status == .failed {
                             let detail = writer.error?.localizedDescription ?? "Unknown error"
@@ -448,7 +447,7 @@ class MicRecorder: NSObject, ObservableObject {
             }
         }
     }
-    
+
     private func cleanup() async {
         captureSession = nil
         audioInput = nil
@@ -463,9 +462,9 @@ class MicRecorder: NSObject, ObservableObject {
         recordingStartTime = nil
         audioLevel = -160.0
     }
-    
+
     // MARK: - Pause/Resume
-    
+
     func pauseRecording() {
         let recording = readState { $0.isRecording }
         guard recording else { return }
@@ -486,16 +485,16 @@ class MicRecorder: NSObject, ObservableObject {
             }
         }
     }
-    
+
     // MARK: - Helper Methods
-    
+
     private func startDurationTimer() {
         durationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
                 if let startTime = self.recordingStartTime {
                     self.currentDuration = Date().timeIntervalSince(startTime)
                 }
-                
+
                 // Update file size
                 if let outputURL = self.outputURL {
                     if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path) {
@@ -505,71 +504,55 @@ class MicRecorder: NSObject, ObservableObject {
             }
         }
     }
-    
+
     private func stopDurationTimer() {
         durationTimer?.invalidate()
         durationTimer = nil
     }
-    
+
     private func startAudioLevelMetering() {
         audioLevelTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             // Audio level is updated in captureOutput callback
         }
     }
-    
+
     private func stopAudioLevelMetering() {
         audioLevelTimer?.invalidate()
         audioLevelTimer = nil
         audioLevel = -160.0
     }
-    
-    private func sanitizeFileName(_ name: String) -> String {
-        // Remove or replace characters that are invalid in filenames
-        var sanitized = name
-        let invalidCharacters = CharacterSet(charactersIn: "/\\?%*|\"<>")
-        sanitized = sanitized.components(separatedBy: invalidCharacters).joined(separator: "_")
-        
-        // Trim whitespace and limit length
-        sanitized = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if sanitized.isEmpty {
-            return "Untitled"
-        }
-        
-        return String(sanitized.prefix(100))
-    }
-    
+
     /// Calculates RMS (Root Mean Square) audio level from sample buffer
     nonisolated private func calculateAudioLevel(from sampleBuffer: CMSampleBuffer) -> Float {
         guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
             return -160.0
         }
-        
+
         var dataPointer: UnsafeMutablePointer<Int8>?
         var dataLength: Int = 0
-        
+
         CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &dataLength, dataPointerOut: &dataPointer)
-        
+
         guard let pointer = dataPointer else {
             return -160.0
         }
-        
+
         let samples = pointer.withMemoryRebound(to: Int16.self, capacity: dataLength / 2) {
             UnsafeBufferPointer(start: $0, count: dataLength / 2)
         }
-        
+
         // Calculate RMS
         var sum: Double = 0
         for sample in samples {
             let s = Double(sample) / 32768.0
             sum += s * s
         }
-        
+
         let rms = sqrt(sum / Double(samples.count))
-        
+
         // Convert to dB
         let db = 20 * log10(max(rms, 1e-10))
-        
+
         return max(-160.0, min(0.0, Float(db)))
     }
 }
@@ -582,29 +565,29 @@ extension MicRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
         Task { @MainActor in
             self.audioLevel = level
         }
-        
+
+        nonisolated(unsafe) let sampleBuffer = sampleBuffer
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            
+
             self.updateState { state in
                 guard state.isRecording else { return }
-                
+
                 if !state.hasStartedWriting {
                     let startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                     state.assetWriter?.startSession(atSourceTime: startTime)
                     state.hasStartedWriting = true
                 }
-                
+
                 if let input = state.assetWriterInput, input.isReadyForMoreMediaData {
                     input.append(sampleBuffer)
                 }
             }
         }
     }
-    
+
     nonisolated func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // Handle dropped samples if needed
-        print("Dropped audio sample")
+        micLogger.debug("Dropped audio sample")
     }
 }
 
