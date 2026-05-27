@@ -202,11 +202,39 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                 }
                 .controlSize(.small)
+
+                footer
             }
             .padding(.horizontal)
             .padding(.bottom, 12)
         }
         .transition(.move(edge: .leading).combined(with: .opacity))
+    }
+
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Text(versionString)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+
+            Text("·")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+
+            Button("Check for Updates") {
+                appDelegate.checkForUpdates()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10))
+            .foregroundColor(.accentColor)
+        }
+        .padding(.top, 4)
+    }
+
+    private var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        return "v\(version)"
     }
 }
 

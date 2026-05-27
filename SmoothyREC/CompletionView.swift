@@ -142,6 +142,22 @@ struct CompletionView: View {
                     FileItemView(item: $item)
                 }
             }
+
+            if viewModel.hasCameraAndScreen {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 11))
+                        .padding(.top, 1)
+                    Text("Your camera was saved as its own file so the screen recording stays pristine. Drop both files into your editor and place the camera on top as a picture-in-picture layer.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .background(Color.blue.opacity(0.08))
+                .cornerRadius(6)
+            }
         }
     }
 
@@ -234,6 +250,7 @@ struct SummaryItem: View {
 struct FileItemView: View {
     @Binding var item: FileItem
     @StateObject private var compressor = VideoCompressor()
+    @State private var compressionError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -307,6 +324,19 @@ struct FileItemView: View {
                 }
                 .padding(.leading, 44)
             }
+
+            if let compressionError {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 10))
+                    Text("Couldn't compress: \(compressionError). Your original file is untouched.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.leading, 44)
+            }
         }
         .padding(12)
         .background(Color(.controlBackgroundColor))
@@ -322,6 +352,8 @@ struct FileItemView: View {
     private func compressFile() {
         guard item.isCompressible else { return }
 
+        compressionError = nil
+
         Task {
             do {
                 let compressedURL = try await compressor.compress(
@@ -329,16 +361,34 @@ struct FileItemView: View {
                     preset: .mediumQuality
                 )
 
-                // Replace original with compressed
+                // Replace original with compressed. If anything fails, leave the
+                // original in place and surface the error rather than silently no-op.
                 let fileManager = FileManager.default
-                try? fileManager.removeItem(at: item.fileURL)
-                try? fileManager.moveItem(at: compressedURL, to: item.fileURL)
+                let backupURL = item.fileURL.deletingPathExtension()
+                    .appendingPathExtension("backup.\(item.fileURL.pathExtension)")
 
-                await MainActor.run {
-                    item.markAsCompressed()
+                do {
+                    try fileManager.moveItem(at: item.fileURL, to: backupURL)
+                    try fileManager.moveItem(at: compressedURL, to: item.fileURL)
+                    try? fileManager.removeItem(at: backupURL)
+
+                    await MainActor.run {
+                        item.markAsCompressed()
+                    }
+                } catch {
+                    // Best-effort restore so the user is never left without their recording.
+                    if fileManager.fileExists(atPath: backupURL.path),
+                       !fileManager.fileExists(atPath: item.fileURL.path) {
+                        try? fileManager.moveItem(at: backupURL, to: item.fileURL)
+                    }
+                    try? fileManager.removeItem(at: compressedURL)
+                    throw error
                 }
             } catch {
                 completionLogger.error("Compression failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    compressionError = error.localizedDescription
+                }
             }
         }
     }
@@ -586,6 +636,11 @@ class CompletionViewModel: ObservableObject {
 
     var formattedTotalSize: String {
         ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
+    }
+
+    var hasCameraAndScreen: Bool {
+        let types = Set(fileItems.map { $0.type })
+        return types.contains(.camera) && types.contains(.screen)
     }
 
     func openOutputFolder() {

@@ -353,6 +353,13 @@ class RecordingCoordinator: NSObject, ObservableObject {
 
     /// Stops all recorders and waits for completion
     func stop() async throws -> RecordingResult {
+        // If we're paused, resume first so the recorders can stop cleanly and
+        // flush their files. The duration calculation below still works
+        // because resume() compensates the startTime for the paused window.
+        if case .paused = state {
+            await resume()
+        }
+
         guard case .recording(let startTime) = state else {
             throw CoordinatorError.notRecording
         }

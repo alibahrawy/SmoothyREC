@@ -32,8 +32,11 @@ final class ScreenPreviewManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var previewedSourceName: String?
+    @Published private(set) var isLive = false
 
     private var requestID = 0
+    private var liveStream: LiveScreenPreviewStream?
+    private var liveTarget: Target?
 
     var hasPreview: Bool {
         image != nil
@@ -41,10 +44,68 @@ final class ScreenPreviewManager: ObservableObject {
 
     func clear() {
         requestID += 1
+        Task { await stopLive() }
         image = nil
         isLoading = false
         errorMessage = nil
         previewedSourceName = nil
+    }
+
+    /// Starts a continuous live preview for the given target. Frames arrive at
+    /// ~24fps from an SCStream sized for thumbnail use (max 720p), which keeps
+    /// CPU and battery in check while still looking truly live.
+    /// Call `stopLive()` when the preview view disappears or when recording
+    /// begins — the recorder needs the screen capture pipeline for itself.
+    func startLive(for target: Target?) async {
+        // Tear down any existing live stream first.
+        await stopLive()
+
+        guard let target else {
+            image = nil
+            errorMessage = "Select a display or window before previewing."
+            previewedSourceName = nil
+            return
+        }
+
+        // Show a snapshot immediately so the UI isn't blank during stream startup.
+        await capturePreview(for: target)
+
+        do {
+            let stream = LiveScreenPreviewStream()
+            try await stream.start(target: target) { [weak self] cgImage in
+                guard let self else { return }
+                Task { @MainActor in
+                    // Discard frames that arrive after we've moved on to another
+                    // source — prevents the preview from briefly flashing the
+                    // previous display when the user switches.
+                    guard self.liveTarget == target else { return }
+                    self.image = NSImage(
+                        cgImage: cgImage,
+                        size: NSSize(width: cgImage.width, height: cgImage.height)
+                    )
+                    self.previewedSourceName = target.name
+                    self.errorMessage = nil
+                    self.isLive = true
+                }
+            }
+            liveStream = stream
+            liveTarget = target
+        } catch {
+            // Fall back to the snapshot path — if SCStream won't start (most
+            // commonly: permission missing), the snapshot already shown above
+            // is the best we can do, and capturePreview surfaced any error.
+            errorMessage = userFacingMessage(for: error)
+            isLive = false
+        }
+    }
+
+    func stopLive() async {
+        isLive = false
+        liveTarget = nil
+        if let stream = liveStream {
+            liveStream = nil
+            await stream.stop()
+        }
     }
 
     func capturePreview(for target: Target?) async {
@@ -443,5 +504,145 @@ struct ScreenPreviewView: View {
 extension ScreenPreviewManager {
     static var preview: ScreenPreviewManager {
         ScreenPreviewManager()
+    }
+}
+
+// MARK: - Live preview stream
+
+/// A long-running SCStream tuned for thumbnail-quality live preview.
+/// Frames flow through a single callback at ~24fps until `stop()` is called.
+private final class LiveScreenPreviewStream: NSObject, SCStreamOutput, SCStreamDelegate {
+    private let queue = DispatchQueue(label: "com.smoothyrec.screenpreview.live", qos: .userInitiated)
+    private let context = CIContext()
+    private let lock = NSLock()
+
+    private var stream: SCStream?
+    private var onFrame: ((CGImage) -> Void)?
+    private var lastFrameAt: CFTimeInterval = 0
+    // Floor between frames — caps preview to ~30fps even if the OS hands us more,
+    // which keeps the SwiftUI redraw cost predictable on retina displays.
+    private let minFrameInterval: CFTimeInterval = 1.0 / 30.0
+
+    func start(target: ScreenPreviewManager.Target,
+               onFrame: @escaping (CGImage) -> Void) async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: false
+        )
+
+        let filter: SCContentFilter
+        let sourceSize: CGSize
+
+        switch target {
+        case .display(let display):
+            guard let scDisplay = content.displays.first(where: { $0.displayID == display.id }) else {
+                throw ScreenPreviewError.sourceUnavailable("Selected display is no longer available.")
+            }
+            let ownApplications = content.applications.filter {
+                $0.bundleIdentifier == Bundle.main.bundleIdentifier
+            }
+            filter = SCContentFilter(
+                display: scDisplay,
+                excludingApplications: ownApplications,
+                exceptingWindows: []
+            )
+            sourceSize = CGSize(width: scDisplay.width, height: scDisplay.height)
+
+        case .window(let window):
+            guard let scWindow = content.windows.first(where: { $0.windowID == window.id }) else {
+                throw ScreenPreviewError.sourceUnavailable("Selected window is no longer available. Load windows again and pick it.")
+            }
+            filter = SCContentFilter(desktopIndependentWindow: scWindow)
+            sourceSize = scWindow.frame.size
+        }
+
+        let previewSize = Self.scaledSize(sourceSize, fittingWithin: CGSize(width: 1280, height: 720))
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int(previewSize.width)
+        configuration.height = Int(previewSize.height)
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        configuration.scalesToFit = true
+        configuration.showsCursor = true
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        configuration.queueDepth = 3
+
+        let scStream = SCStream(filter: filter, configuration: configuration, delegate: self)
+
+        lock.lock()
+        self.onFrame = onFrame
+        self.stream = scStream
+        lock.unlock()
+
+        try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        try await scStream.startCapture()
+    }
+
+    func stop() async {
+        lock.lock()
+        let scStream = stream
+        stream = nil
+        onFrame = nil
+        lock.unlock()
+
+        guard let scStream else { return }
+        try? await scStream.stopCapture()
+    }
+
+    nonisolated func stream(_ stream: SCStream,
+                            didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+                            of outputType: SCStreamOutputType) {
+        guard outputType == .screen,
+              CMSampleBufferIsValid(sampleBuffer),
+              Self.isCompleteFrame(sampleBuffer),
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
+        }
+
+        // Frame-rate throttle on the producer side so we don't burn cycles
+        // converting frames the UI would never see.
+        let now = CACurrentMediaTime()
+        lock.lock()
+        let interval = now - lastFrameAt
+        guard interval >= minFrameInterval else {
+            lock.unlock()
+            return
+        }
+        lastFrameAt = now
+        let callback = onFrame
+        lock.unlock()
+
+        guard let callback else { return }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            return
+        }
+        callback(cgImage)
+    }
+
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        // Stop quietly — the manager already shows a snapshot if the stream
+        // disappears, and reports an error via its own error path on next start.
+    }
+
+    private nonisolated static func isCompleteFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let firstAttachment = attachments.first,
+              let rawStatus = firstAttachment[.status] as? Int,
+              let status = SCFrameStatus(rawValue: rawStatus) else {
+            return true
+        }
+        return status == .complete || status == .started
+    }
+
+    private static func scaledSize(_ sourceSize: CGSize, fittingWithin maxSize: CGSize) -> CGSize {
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
+            return maxSize
+        }
+        let scale = min(1.0, min(maxSize.width / sourceSize.width, maxSize.height / sourceSize.height))
+        let width = max(2, Int((sourceSize.width * scale).rounded(.down)))
+        let height = max(2, Int((sourceSize.height * scale).rounded(.down)))
+        return CGSize(width: max(2, width - (width % 2)),
+                      height: max(2, height - (height % 2)))
     }
 }

@@ -38,3 +38,10 @@ iOSInjectionProject/
 *.tmp
 *.swp
 *~
+
+# Xcode user-specific state — should never be committed
+*.xcuserstate
+xcuserdata/
+
+# Local editor / skills folder
+.skills/

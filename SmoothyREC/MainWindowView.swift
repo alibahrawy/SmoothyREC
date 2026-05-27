@@ -92,6 +92,11 @@ struct MainWindowView: View {
             Task {
                 await refreshDevices()
             }
+            // Kick off live preview immediately if a target is already selected
+            // (e.g. the user reopened the window after previously picking one).
+            // No-op when nothing is selected yet — selection-change handlers
+            // will start it later.
+            startLiveScreenPreview()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             if deviceManager.displays.isEmpty {
@@ -104,12 +109,23 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: selectedDisplay) { _ in
-            screenPreviewManager.clear()
+            startLiveScreenPreview()
         }
         .onChange(of: selectedWindow) { _ in
-            screenPreviewManager.clear()
+            startLiveScreenPreview()
+        }
+        .onChange(of: appDelegate.isRecording) { recording in
+            // The recorder owns the screen capture pipeline during recording;
+            // running two SCStreams against the same target wastes power and
+            // can hit OS-level frame drops.
+            if recording {
+                Task { await screenPreviewManager.stopLive() }
+            } else {
+                startLiveScreenPreview()
+            }
         }
         .onDisappear {
+            Task { await screenPreviewManager.stopLive() }
             screenPreviewManager.clear()
             Task {
                 await cameraPreviewManager.stopPreview()
@@ -251,7 +267,7 @@ struct MainWindowView: View {
             .pickerStyle(.segmented)
             .onChange(of: recordMode) { _ in
                 selectedWindow = nil
-                screenPreviewManager.clear()
+                startLiveScreenPreview()
             }
 
             if recordMode == .fullScreen {
@@ -470,7 +486,7 @@ struct MainWindowView: View {
                     }
                 }
 
-                Label("Camera is saved as a separate video file with this stability build.", systemImage: "doc.badge.plus")
+                Label("Camera is saved as its own video file so you can position the picture-in-picture in your editor.", systemImage: "doc.badge.plus")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             } else {
@@ -716,9 +732,9 @@ struct MainWindowView: View {
     private var screenPreviewHint: String {
         switch recordMode {
         case .fullScreen:
-            return selectedDisplay == nil ? "Choose a display before capturing a preview." : "Captures one snapshot only when you click the button."
+            return selectedDisplay == nil ? "Choose a display to see a live preview." : "Live preview at ~30fps. Pauses while recording."
         case .specificWindow:
-            return selectedWindow == nil ? "Load windows and choose one before capturing a preview." : "Captures one snapshot of the selected window."
+            return selectedWindow == nil ? "Load windows and choose one to see a live preview." : "Live preview at ~30fps. Pauses while recording."
         }
     }
 
@@ -745,8 +761,27 @@ struct MainWindowView: View {
     }
 
     private func previewSelectedSource() {
+        // If there's nothing to preview yet (e.g. user switched to specific
+        // window before loading the window list), clear instead of triggering
+        // an error-state capture.
+        guard let target = currentScreenPreviewTarget else {
+            screenPreviewManager.clear()
+            return
+        }
         Task {
-            await screenPreviewManager.capturePreview(for: currentScreenPreviewTarget)
+            await screenPreviewManager.capturePreview(for: target)
+        }
+    }
+
+    private func startLiveScreenPreview() {
+        guard !appDelegate.isRecording else { return }
+        guard let target = currentScreenPreviewTarget else {
+            Task { await screenPreviewManager.stopLive() }
+            screenPreviewManager.clear()
+            return
+        }
+        Task {
+            await screenPreviewManager.startLive(for: target)
         }
     }
 }

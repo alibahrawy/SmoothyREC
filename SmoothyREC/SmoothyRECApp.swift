@@ -190,9 +190,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             } catch {
                 logger.error("Failed to stop recording: \(error.localizedDescription)")
                 await MainActor.run {
-                    showRecordingErrorAlert(error: error)
+                    // Force the UI back to a sensible state — if stop() threw
+                    // because the coordinator is in an unexpected state, the
+                    // .finished branch in handleCoordinatorStateChange never
+                    // fires, leaving the menu bar stuck in "recording" mode
+                    // with a popover that just re-throws on every click.
+                    self.forceResetRecordingUI()
+                    self.showRecordingErrorAlert(error: error)
                 }
             }
+        }
+    }
+
+    /// Resets all "currently recording" UI state regardless of what the
+    /// coordinator thinks. Called when stop() fails and leaves the UI orphaned.
+    private func forceResetRecordingUI() {
+        isRecording = false
+        isPaused = false
+        recordingStatusPopover?.performClose(nil)
+        updateMainStatusButton()
+
+        // Also tell the coordinator to discard if it's stuck — best-effort,
+        // don't await so the alert below doesn't block.
+        Task {
+            await self.recordingCoordinator.discard()
         }
     }
 
@@ -251,9 +272,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private func handleReturnFromScreenPermissionSettings() async {
         awaitingScreenPermissionReturn = false
+        await detectScreenPermissionFlipSinceLaunch()
+    }
 
+    /// Detects whether Screen Recording flipped from denied→granted since launch.
+    /// macOS requires the app to relaunch in that case before SCStream will work
+    /// reliably, so we surface a clear prompt. Called from both the Settings-return
+    /// path and from any flow (e.g. onboarding) that may have produced a grant.
+    func detectScreenPermissionFlipSinceLaunch() async {
         let currentPermissionGranted = await queryScreenCaptureAccess()
         guard currentPermissionGranted, currentPermissionGranted != launchScreenPermissionGranted else { return }
+        guard !screenPermissionRequiresRelaunch else { return }
 
         screenPermissionRequiresRelaunch = true
         showScreenPermissionRelaunchAlert()

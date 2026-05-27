@@ -42,9 +42,12 @@ enum PermissionState: Equatable {
 }
 
 enum PermissionType: Int, CaseIterable, Identifiable {
-    case screenRecording = 0
-    case camera = 1
-    case microphone = 2
+    // Order matters: this is the order onboarding walks through, and Screen
+    // Recording must be LAST because granting it forces a relaunch — if it
+    // ran first the user would never get back to grant Camera or Microphone.
+    case camera = 0
+    case microphone = 1
+    case screenRecording = 2
 
     var id: Int { rawValue }
 
@@ -100,7 +103,7 @@ struct OnboardingView: View {
         .camera: .notDetermined,
         .microphone: .notDetermined
     ]
-    @State private var currentStep: PermissionType = .screenRecording
+    @State private var currentStep: PermissionType = .camera
     @State private var isCheckingPermissions = false
     @State private var isPolling = false
     @State private var hasInteracted: [PermissionType: Bool] = [
@@ -134,8 +137,6 @@ struct OnboardingView: View {
                 VStack(spacing: 16) {
                     introText
 
-                    screenRecordingSection
-
                     ForEach([PermissionType.camera, .microphone]) { type in
                         PermissionRow(
                             type: type,
@@ -147,6 +148,8 @@ struct OnboardingView: View {
                             onCheck: { await checkPermission(for: type) }
                         )
                     }
+
+                    screenRecordingSection
 
                     reopenNote
                 }
@@ -179,6 +182,9 @@ struct OnboardingView: View {
             Task {
                 await handleAppBecameActive()
             }
+        }
+        .onDisappear {
+            isPolling = false
         }
         .alert("Already Granted?", isPresented: $showingAlreadyGrantedConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -215,7 +221,7 @@ struct OnboardingView: View {
     }
 
     private var introText: some View {
-        Text("SmoothyREC requires explicit permissions to offer certain functions. Click each permission below to review and grant it. You must interact with each one before continuing.")
+        Text("Grant Camera and Microphone first (optional). Grant Screen Recording last — macOS will quit and relaunch SmoothyREC right after, so handle the others first to avoid having to repeat yourself.")
             .font(.system(size: 13))
             .foregroundColor(.secondary)
             .multilineTextAlignment(.center)
@@ -427,9 +433,12 @@ struct OnboardingView: View {
     private func openScreenRecordingSettings() {
         guard let url = PermissionType.screenRecording.settingsURL else { return }
         NSWorkspace.shared.open(url)
+
+        // Don't spawn a second poll task if one is already running — re-opening
+        // Settings just brings the existing one back to the front.
+        guard !isPolling else { return }
         isPolling = true
 
-        // Start polling for permission change (uses CGPreflightScreenCaptureAccess — silent)
         Task {
             await pollScreenRecordingPermission()
         }
@@ -438,24 +447,44 @@ struct OnboardingView: View {
     private func markScreenRecordingAsGranted() {
         hasInteracted[.screenRecording] = true
         permissionStates[.screenRecording] = .authorized
-        currentStep = .camera
+        isPolling = false
+
+        // Screen Recording is the final step. Mark onboarding complete BEFORE
+        // any relaunch so the app comes back to the main window instead of
+        // looping the user through this view again. Then surface the standard
+        // relaunch prompt — granting Screen Recording mid-session always
+        // requires a restart for SCStream to actually work.
+        appDelegate.hasCompletedOnboarding = true
+        appDelegate.hasShownInitialPermissionPanel = true
+
+        Task { @MainActor in
+            await appDelegate.detectScreenPermissionFlipSinceLaunch()
+        }
     }
 
     private func pollScreenRecordingPermission() async {
-        // Poll every 1.5 seconds for up to 45 seconds using CGPreflightScreenCaptureAccess.
-        // This is a silent query — it never triggers the permission dialog.
-        for _ in 0..<30 {
+        // Poll every 1.5 seconds using CGPreflightScreenCaptureAccess (a silent
+        // query that never triggers the permission dialog). Keep polling until
+        // the user grants permission or backs out of the flow — a fixed timeout
+        // strands users who take more than 45s to find the right pane.
+        while isPolling {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+            // The user (or another code path) may have ended polling while we slept.
+            if !isPolling { return }
 
             await checkScreenRecordingState()
 
             let state = permissionStates[.screenRecording] ?? .notDetermined
             if state == .authorized {
-                isPolling = false
+                // Run the full "granted as final step" path: mark onboarding
+                // complete and trigger the relaunch prompt. Without this the
+                // poller would silently set the state and the user would be
+                // stuck wondering what to do next.
+                markScreenRecordingAsGranted()
                 return
             }
         }
-        isPolling = false
     }
 
     private func checkScreenRecordingState() async {

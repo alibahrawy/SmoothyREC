@@ -83,6 +83,14 @@ extension AppDelegate {
         hasShownInitialPermissionPanel = true
         onboardingWindow?.close()
         showMainWindow()
+
+        // If the user granted Screen Recording during onboarding, macOS still
+        // needs the app to relaunch before SCStream becomes usable. The
+        // settings-return path doesn't fire because onboarding opens Settings
+        // directly via NSWorkspace, so we explicitly probe here.
+        Task { @MainActor in
+            await self.detectScreenPermissionFlipSinceLaunch()
+        }
     }
 
     func reopenOnboarding() {
@@ -124,4 +132,17 @@ extension AppDelegate {
     func quitApp() {
         NSApp.terminate(nil)
     }
+
+    // MARK: - Updates
+
+    /// Opens the SmoothyREC releases page in the user's default browser.
+    /// The app is unsigned for now so a true in-app updater (Sparkle) would
+    /// re-trigger Gatekeeper on every install — sending users to the releases
+    /// page is the cleanest first-version solution.
+    func checkForUpdates() {
+        guard let url = URL(string: AppDelegate.releasesURL) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    static let releasesURL = "https://github.com/smoothyedit/smoothyrec/releases/latest"
 }
