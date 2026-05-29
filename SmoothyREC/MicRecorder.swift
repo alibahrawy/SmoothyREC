@@ -16,6 +16,7 @@ private let micLogger = Logger(subsystem: "com.smoothyrec.SmoothyREC", category:
 
 struct MicrophoneConfiguration {
     let videoName: String
+    let outputDirectory: URL
     let selectedMicrophone: Microphone
     let sampleRate: Double = 48000.0
     let channels: Int = 1  // Mono for microphone
@@ -133,6 +134,10 @@ class MicRecorder: NSObject, ObservableObject {
     nonisolated(unsafe) private var recorderState = RecorderState()
     private let stateLock = NSLock()
 
+    /// Linear gain applied to captured PCM. Cached here so the nonisolated
+    /// capture callback can read it without touching the MainActor settings.
+    nonisolated(unsafe) private var captureGain: Float = 1.0
+
     private var currentConfiguration: MicrophoneConfiguration?
     private var outputURL: URL?
     private var recordingStartTime: Date?
@@ -197,6 +202,7 @@ class MicRecorder: NSObject, ObservableObject {
 
         state = .preparing
         currentConfiguration = configuration
+        captureGain = Float(SettingsManager.shared.micGain)
 
         do {
             try await checkMicrophonePermission()
@@ -284,16 +290,12 @@ class MicRecorder: NSObject, ObservableObject {
     }
 
     private func setupOutputFile(configuration: MicrophoneConfiguration) throws {
-        guard let outputDirectory = SettingsManager.shared.effectiveOutputFolder else {
-            throw MicRecorderError.invalidOutputURL
-        }
-
         do {
             outputURL = try RecordingOutputFileResolver.preparedOutputURL(
                 videoName: configuration.videoName,
                 component: .microphone,
                 fileExtension: "m4a",
-                outputDirectory: outputDirectory
+                outputDirectory: configuration.outputDirectory
             )
         } catch {
             throw MicRecorderError.outputFileSetupFailed(error.localizedDescription)
@@ -580,8 +582,29 @@ extension MicRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
                 }
 
                 if let input = state.assetWriterInput, input.isReadyForMoreMediaData {
+                    self.applyGain(self.captureGain, to: sampleBuffer)
                     input.append(sampleBuffer)
                 }
+            }
+        }
+    }
+
+    /// Scales 16-bit PCM samples in place. No-op at unity gain. Clamps to the
+    /// Int16 range so boosting can't wrap loud peaks into noise.
+    nonisolated private func applyGain(_ gain: Float, to sampleBuffer: CMSampleBuffer) {
+        guard gain != 1.0, let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        guard CMBlockBufferIsRangeContiguous(blockBuffer, atOffset: 0, length: 0) else { return }
+
+        var length = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer) == kCMBlockBufferNoErr,
+              let dataPointer else { return }
+
+        let count = length / MemoryLayout<Int16>.size
+        dataPointer.withMemoryRebound(to: Int16.self, capacity: count) { samples in
+            for i in 0..<count {
+                let scaled = Float(samples[i]) * gain
+                samples[i] = Int16(max(-32768.0, min(32767.0, scaled)))
             }
         }
     }

@@ -66,6 +66,22 @@ final class RecordingSupportTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: secondURL.path))
     }
 
+    func testUniqueRecordingDirectoryNumbersSameTitleFolders() throws {
+        let base = temporaryDirectory()
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
+        let first = RecordingOutputFileResolver.uniqueRecordingDirectory(videoName: "My Clip", in: base)
+        XCTAssertEqual(first.lastPathComponent, "My Clip")
+
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        let second = RecordingOutputFileResolver.uniqueRecordingDirectory(videoName: "My Clip", in: base)
+        XCTAssertEqual(second.lastPathComponent, "My Clip 2")
+
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        let third = RecordingOutputFileResolver.uniqueRecordingDirectory(videoName: "My Clip", in: base)
+        XCTAssertEqual(third.lastPathComponent, "My Clip 3")
+    }
+
     func testSettingsDefaultsRepresentCurrentRecordingDefaults() {
         XCTAssertEqual(SettingsKey.defaultQuality.defaultValue as? String, RecordingQuality.high.rawValue)
         XCTAssertEqual(SettingsKey.defaultFrameRate.defaultValue as? Int, FrameRate.fps30.rawValue)

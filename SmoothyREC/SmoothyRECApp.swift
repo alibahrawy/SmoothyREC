@@ -12,6 +12,10 @@ import os.log
 
 private let logger = Logger(subsystem: "com.smoothyrec.SmoothyREC", category: "App")
 
+extension Notification.Name {
+    static let smoothyHotKeyStart = Notification.Name("smoothyHotKeyStart")
+}
+
 enum AppError: LocalizedError {
     case screenPermissionChangeRequiresRelaunch
 
@@ -35,7 +39,7 @@ struct SmoothyRECApp: App {
 }
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
     // MARK: - Menu Bar Items
 
     var mainStatusItem: NSStatusItem?
@@ -52,10 +56,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
     @AppStorage("hasShownInitialPermissionPanel") var hasShownInitialPermissionPanel: Bool = false
+    // Once the user closes the permission panel even a single time, we never
+    // auto-open it again on launch — the main window's banner remains the
+    // fallback for surfacing any still-missing permission.
+    @AppStorage("hasDismissedPermissionPanel") var hasDismissedPermissionPanel: Bool = false
 
     // MARK: - Recording Coordinator
 
     let recordingCoordinator = RecordingCoordinator()
+    let countdownOverlay = CountdownOverlayController()
 
     // MARK: - UI State
 
@@ -67,6 +76,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var awaitingScreenPermissionReturn = false
     private var launchScreenPermissionGranted = false
+    private var pendingHotKeyStart = false
 
     // MARK: - Lifecycle
 
@@ -77,14 +87,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         setupMainMenuBar()
         setupRecordingStatusMenuBar()
         setupCoordinatorBindings()
+        reloadHotKeys()
 
         launchScreenPermissionGranted = CGPreflightScreenCaptureAccess()
 
-        if shouldShowPermissionPanelOnLaunch {
+        // Always open the full main window first (never just the menu-bar popover).
+        showMainWindow()
+
+        // Show the permission panel on top until the user dismisses it once.
+        if !hasDismissedPermissionPanel {
             hasShownInitialPermissionPanel = true
             showOnboardingWindow()
-        } else {
-            showMainWindow()
         }
     }
 
@@ -227,6 +240,51 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
+    // MARK: - Global Hotkeys
+
+    func reloadHotKeys() {
+        HotKeyManager.shared.unregisterAll()
+
+        let settings = SettingsManager.shared
+
+        HotKeyManager.shared.register(
+            HotKeyCombo(keyCode: settings.startStopKeyCode, modifiers: settings.startStopModifiers)
+        ) { [weak self] in
+            self?.hotKeyToggleRecord()
+        }
+
+        HotKeyManager.shared.register(
+            HotKeyCombo(keyCode: settings.pauseKeyCode, modifiers: settings.pauseModifiers)
+        ) { [weak self] in
+            self?.hotKeyTogglePause()
+        }
+    }
+
+    private func hotKeyToggleRecord() {
+        if isRecording {
+            stopRecordingFromStatusBar()
+        } else {
+            // Bring the recorder window forward and let it start with the
+            // current device selections, countdown, and overlay.
+            pendingHotKeyStart = true
+            showMainWindow()
+            NotificationCenter.default.post(name: .smoothyHotKeyStart, object: nil)
+        }
+    }
+
+    private func hotKeyTogglePause() {
+        guard isRecording else { return }
+        togglePauseResume()
+    }
+
+    /// Returns true exactly once after a hotkey requested a start, so the main
+    /// window can trigger recording whether it was already open or just created.
+    func consumePendingHotKeyStart() -> Bool {
+        guard pendingHotKeyStart else { return false }
+        pendingHotKeyStart = false
+        return true
+    }
+
     func discardRecording() {
         Task {
             await recordingCoordinator.discard()
@@ -260,14 +318,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
             NSApp.terminate(nil)
         }
-    }
-
-    private var shouldShowPermissionPanelOnLaunch: Bool {
-        !hasCompletedOnboarding || !hasShownInitialPermissionPanel || isMissingRequiredPermission
-    }
-
-    private var isMissingRequiredPermission: Bool {
-        !CGPreflightScreenCaptureAccess()
     }
 
     private func handleReturnFromScreenPermissionSettings() async {

@@ -19,6 +19,7 @@ private let screenLogger = Logger(subsystem: "com.smoothyrec.SmoothyREC", catego
 
 struct RecordingConfiguration {
     let videoName: String
+    let outputDirectory: URL
     let recordTarget: RecordTarget
     let includeSystemAudio: Bool
     let includeMicrophone: Bool
@@ -27,10 +28,12 @@ struct RecordingConfiguration {
     let showCameraOverlay: Bool
     let quality: RecordingQuality
     let frameRate: FrameRate
+    var showsCursor: Bool = true
 
     enum RecordTarget {
         case fullScreen(Display)
         case window(CaptureWindow)
+        case area(Display, CGRect, CGFloat)
     }
 }
 
@@ -428,10 +431,6 @@ class ScreenRecorder: NSObject, ObservableObject {
     }
 
     private func setupOutputFile(configuration: RecordingConfiguration, useNativeRecordingOutput: Bool) throws {
-        guard let outputDirectory = SettingsManager.shared.effectiveOutputFolder else {
-            throw RecordingError.invalidOutputURL
-        }
-
         let fileExtension = useNativeRecordingOutput ? "mp4" : "mov"
 
         do {
@@ -439,7 +438,7 @@ class ScreenRecorder: NSObject, ObservableObject {
                 videoName: configuration.videoName,
                 component: .screen,
                 fileExtension: fileExtension,
-                outputDirectory: outputDirectory
+                outputDirectory: configuration.outputDirectory
             )
         } catch {
             throw RecordingError.outputFileSetupFailed(error.localizedDescription)
@@ -642,6 +641,20 @@ class ScreenRecorder: NSObject, ObservableObject {
             } else {
                 throw RecordingError.noTargetSelected
             }
+
+        case .area(let display, let rect, _):
+            let scDisplay: SCDisplay
+            if let matching = content.displays.first(where: { $0.displayID == display.id }) {
+                scDisplay = matching
+            } else if let mainDisplay = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) {
+                scDisplay = mainDisplay
+            } else {
+                scDisplay = content.displays[0]
+            }
+
+            filter = SCContentFilter(display: scDisplay, excludingApplications: [], exceptingWindows: [])
+            // Capture only the user-selected sub-region of the display.
+            streamConfig.sourceRect = rect
         }
 
         let captureSize = resolvedCaptureSize(for: configuration, filter: filter)
@@ -652,6 +665,7 @@ class ScreenRecorder: NSObject, ObservableObject {
         streamConfig.pixelFormat = kCVPixelFormatType_32BGRA
         streamConfig.scalesToFit = true
         streamConfig.queueDepth = 5
+        streamConfig.showsCursor = configuration.showsCursor
 
         if configuration.includeSystemAudio {
             streamConfig.capturesAudio = true
@@ -822,6 +836,18 @@ class ScreenRecorder: NSObject, ObservableObject {
     }
 
     private func resolvedCaptureSize(for configuration: RecordingConfiguration, filter: SCContentFilter? = nil) -> CGSize {
+        // Area capture is sized from the selected region (points × backing scale),
+        // computed identically whether or not a filter is available so the asset
+        // writer and the stream agree on dimensions.
+        if case .area(_, let rect, let scale) = configuration.recordTarget {
+            let maxSize = CGSize(
+                width: configuration.quality.dimensions.width,
+                height: configuration.quality.dimensions.height
+            )
+            let pixelSize = CGSize(width: rect.width * scale, height: rect.height * scale)
+            return scaledSize(pixelSize, fittingWithin: maxSize)
+        }
+
         if #available(macOS 14.0, *), let filter {
             let scaledFilterSize = CGSize(
                 width: filter.contentRect.width * CGFloat(filter.pointPixelScale),
@@ -843,6 +869,8 @@ class ScreenRecorder: NSObject, ObservableObject {
             sourceSize = CGSize(width: display.width, height: display.height)
         case .window(let window):
             sourceSize = window.size
+        case .area(_, let rect, let scale):
+            sourceSize = CGSize(width: rect.width * scale, height: rect.height * scale)
         }
 
         let maxSize = CGSize(

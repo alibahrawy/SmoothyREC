@@ -142,6 +142,28 @@ enum RecordingOutputFileResolver {
         return dateFormatter.string(from: date)
     }
 
+    /// Resolves a unique per-recording folder under `baseDirectory`. The first
+    /// recording of a title gets `Title`; subsequent recordings of the same
+    /// title get `Title 2`, `Title 3`, … so footage never collides and each
+    /// session's files stay grouped together. The caller resolves this once and
+    /// passes it to every recorder so they all write into the same folder.
+    static func uniqueRecordingDirectory(
+        videoName: String,
+        in baseDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let base = sanitizedBaseName(videoName)
+        var candidate = baseDirectory.appendingPathComponent(base, isDirectory: true)
+        var counter = 2
+
+        while fileManager.fileExists(atPath: candidate.path) {
+            candidate = baseDirectory.appendingPathComponent("\(base) \(counter)", isDirectory: true)
+            counter += 1
+        }
+
+        return candidate
+    }
+
     static func preparedOutputURL(
         videoName: String,
         component: RecordingComponent,
@@ -151,6 +173,7 @@ enum RecordingOutputFileResolver {
         timeZone: TimeZone = .current,
         fileManager: FileManager = .default
     ) throws -> URL {
+        // `outputDirectory` is already the resolved per-recording folder.
         do {
             try fileManager.createDirectory(
                 at: outputDirectory,

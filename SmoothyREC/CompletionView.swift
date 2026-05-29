@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVFoundation
+import AVKit
 import os.log
 
 private let completionLogger = Logger(subsystem: "com.smoothyrec.SmoothyREC", category: "Completion")
@@ -47,6 +48,13 @@ struct CompletionView: View {
 
                     // Files list
                     filesSection
+
+                    if viewModel.hasCameraAndScreen {
+                        Divider()
+                            .padding(.horizontal, -20)
+
+                        pipSection
+                    }
                 }
                 .padding(24)
             }
@@ -59,6 +67,67 @@ struct CompletionView: View {
         .frame(minWidth: 500, idealWidth: 550, maxWidth: 600,
                minHeight: 450, idealHeight: 500, maxHeight: .infinity)
         .background(Color(.windowBackgroundColor))
+        .onAppear {
+            viewModel.exportPiPIfNeeded()
+        }
+    }
+
+    // MARK: - Picture-in-Picture Section
+    private var pipSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label {
+                Text("Picture-in-Picture")
+                    .font(.system(size: 13, weight: .medium))
+            } icon: {
+                Image(systemName: "pip.fill")
+                    .foregroundColor(.green)
+            }
+
+            switch viewModel.pipState {
+            case .idle, .failed:
+                HStack(alignment: .top, spacing: 8) {
+                    Text("Combine the camera over the screen into one ready-to-share video.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer()
+
+                    Button(action: { Task { await viewModel.exportPiP() } }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.stack.3d.down.right.fill")
+                            Text("Export PiP")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if case .failed(let message) = viewModel.pipState {
+                    Text("Couldn't combine: \(message)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+            case .exporting:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Combining camera and screen…")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+
+            case .done:
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("Picture-in-picture video saved to the recording folder.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
     }
 
     // MARK: - Header
@@ -247,10 +316,16 @@ struct SummaryItem: View {
 
 // MARK: - File Item View
 
+struct PreviewItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 struct FileItemView: View {
     @Binding var item: FileItem
     @StateObject private var compressor = VideoCompressor()
     @State private var compressionError: String?
+    @State private var preview: PreviewItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -287,6 +362,16 @@ struct FileItemView: View {
                     }
                 } else {
                     HStack(spacing: 8) {
+                        // Play / preview button
+                        Button(action: {
+                            preview = PreviewItem(url: item.fileURL)
+                        }) {
+                            Image(systemName: "play.circle")
+                                .font(.system(size: 16))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Preview")
+
                         // Compress button
                         Button(action: {
                             compressFile()
@@ -347,6 +432,9 @@ struct FileItemView: View {
                 item.updateAfterCompression()
             }
         }
+        .sheet(item: $preview) { item in
+            PreviewPlayerView(url: item.url)
+        }
     }
 
     private func compressFile() {
@@ -391,6 +479,43 @@ struct FileItemView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Preview Player
+
+struct PreviewPlayerView: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer
+
+    init(url: URL) {
+        self.url = url
+        _player = State(initialValue: AVPlayer(url: url))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VideoPlayer(player: player)
+                .frame(width: 720, height: 440)
+
+            HStack {
+                Text(url.lastPathComponent)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("Done") {
+                    player.pause()
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
+        .onAppear { player.play() }
+        .onDisappear { player.pause() }
     }
 }
 
@@ -503,12 +628,14 @@ struct FileItem: Identifiable {
         case screen
         case camera
         case microphone
+        case combined
 
         var displayName: String {
             switch self {
             case .screen: return "Screen Recording"
             case .camera: return "Camera Recording"
             case .microphone: return "Microphone Audio"
+            case .combined: return "Picture-in-Picture"
             }
         }
 
@@ -517,6 +644,7 @@ struct FileItem: Identifiable {
             case .screen: return "display.fill"
             case .camera: return "video.fill"
             case .microphone: return "mic.fill"
+            case .combined: return "pip.fill"
             }
         }
 
@@ -525,12 +653,13 @@ struct FileItem: Identifiable {
             case .screen: return .blue
             case .camera: return .purple
             case .microphone: return .orange
+            case .combined: return .green
             }
         }
 
         var isCompressible: Bool {
             switch self {
-            case .screen, .camera: return true
+            case .screen, .camera, .combined: return true
             case .microphone: return true // AAC can be re-encoded
             }
         }
@@ -581,15 +710,59 @@ struct FileItem: Identifiable {
 
 // MARK: - Completion View Model
 
+enum PiPExportState: Equatable {
+    case idle
+    case exporting
+    case done(URL)
+    case failed(String)
+}
+
 @MainActor
 class CompletionViewModel: ObservableObject {
     @Published var fileItems: [FileItem] = []
+    @Published var pipState: PiPExportState = .idle
 
     let result: RecordingResult
 
     init(result: RecordingResult) {
         self.result = result
         loadFileItems()
+    }
+
+    func exportPiPIfNeeded() {
+        guard SettingsManager.shared.pipAutoExport, hasCameraAndScreen, pipState == .idle else { return }
+        Task { await exportPiP() }
+    }
+
+    func exportPiP() async {
+        guard let screenURL = result.screenRecordingURL,
+              let cameraURL = result.cameraRecordingURL else { return }
+        guard pipState != .exporting else { return }
+
+        pipState = .exporting
+
+        let corner = PiPCorner(rawValue: SettingsManager.shared.pipCorner) ?? .bottomRight
+        let base = RecordingOutputFileResolver.sanitizedBaseName(result.videoName)
+        let timestamp = RecordingOutputFileResolver.timestampString()
+        let outputURL = screenURL.deletingLastPathComponent()
+            .appendingPathComponent("\(base)_pip_\(timestamp).mp4")
+
+        do {
+            let url = try await PiPCompositor.compose(
+                screenURL: screenURL,
+                cameraURL: cameraURL,
+                microphoneURL: result.microphoneRecordingURL,
+                outputURL: outputURL,
+                corner: corner
+            )
+            if let size = fileSize(at: url) {
+                fileItems.append(FileItem(fileURL: url, type: .combined, fileSize: size))
+            }
+            pipState = .done(url)
+        } catch {
+            completionLogger.error("PiP export failed: \(error.localizedDescription)")
+            pipState = .failed(error.localizedDescription)
+        }
     }
 
     private func loadFileItems() {

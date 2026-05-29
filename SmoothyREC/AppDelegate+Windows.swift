@@ -61,6 +61,7 @@ extension AppDelegate {
             window.title = "Welcome to SmoothyREC"
             window.center()
             window.isReleasedWhenClosed = false
+            window.delegate = self
             onboardingWindow = window
         }
 
@@ -95,6 +96,17 @@ extension AppDelegate {
 
     func reopenOnboarding() {
         showOnboardingWindow()
+    }
+
+    // MARK: - NSWindowDelegate
+
+    /// Closing the permission panel — by the Continue button or the window's
+    /// close control — permanently suppresses auto-opening it on future launches.
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window === onboardingWindow else { return }
+
+        hasDismissedPermissionPanel = true
     }
 
     // MARK: - Settings Window

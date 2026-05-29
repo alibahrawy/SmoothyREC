@@ -16,8 +16,20 @@ enum SettingsKey: String {
     case defaultQuality = "defaultQuality"
     case defaultFrameRate = "defaultFrameRate"
     case includeSystemAudio = "includeSystemAudio"
+    case captureCursor = "captureCursor"
     case countdownEnabled = "countdownEnabled"
     case countdownSeconds = "countdownSeconds"
+    case lastCameraID = "lastCameraID"
+    case lastMicrophoneID = "lastMicrophoneID"
+    case lastDisplayID = "lastDisplayID"
+    case lastRecordMode = "lastRecordMode"
+    case micGain = "micGain"
+    case pipAutoExport = "pipAutoExport"
+    case pipCorner = "pipCorner"
+    case startStopKeyCode = "startStopKeyCode"
+    case startStopModifiers = "startStopModifiers"
+    case pauseKeyCode = "pauseKeyCode"
+    case pauseModifiers = "pauseModifiers"
 
     var defaultValue: Any? {
         switch self {
@@ -29,10 +41,28 @@ enum SettingsKey: String {
             return FrameRate.fps30.rawValue
         case .includeSystemAudio:
             return true
+        case .captureCursor:
+            return true
         case .countdownEnabled:
             return true
         case .countdownSeconds:
             return 3
+        case .lastCameraID, .lastMicrophoneID, .lastDisplayID, .lastRecordMode:
+            return nil
+        case .micGain:
+            return 1.0
+        case .pipAutoExport:
+            return false
+        case .pipCorner:
+            return "bottomRight"
+        case .startStopKeyCode:
+            return 15 // R
+        case .startStopModifiers:
+            return 768 // cmd + shift
+        case .pauseKeyCode:
+            return 35 // P
+        case .pauseModifiers:
+            return 768 // cmd + shift
         }
     }
 }
@@ -73,6 +103,12 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    @Published var captureCursor: Bool {
+        didSet {
+            UserDefaults.standard.set(captureCursor, forKey: SettingsKey.captureCursor.rawValue)
+        }
+    }
+
     @Published var countdownEnabled: Bool {
         didSet {
             UserDefaults.standard.set(countdownEnabled, forKey: SettingsKey.countdownEnabled.rawValue)
@@ -82,6 +118,67 @@ class SettingsManager: ObservableObject {
     @Published var countdownSeconds: Int {
         didSet {
             UserDefaults.standard.set(countdownSeconds, forKey: SettingsKey.countdownSeconds.rawValue)
+        }
+    }
+
+    // MARK: - Last-Selected Devices
+
+    /// Stable identifiers for the most recently used capture devices, restored
+    /// on each launch so the user doesn't have to re-pick their setup.
+    @Published var lastCameraID: String? {
+        didSet { persistOptionalString(lastCameraID, forKey: .lastCameraID) }
+    }
+
+    @Published var lastMicrophoneID: String? {
+        didSet { persistOptionalString(lastMicrophoneID, forKey: .lastMicrophoneID) }
+    }
+
+    @Published var lastDisplayID: String? {
+        didSet { persistOptionalString(lastDisplayID, forKey: .lastDisplayID) }
+    }
+
+    @Published var lastRecordMode: String? {
+        didSet { persistOptionalString(lastRecordMode, forKey: .lastRecordMode) }
+    }
+
+    // MARK: - Audio / PiP / Shortcuts
+
+    /// Linear gain multiplier applied to microphone samples (1.0 = unchanged).
+    @Published var micGain: Double {
+        didSet { UserDefaults.standard.set(micGain, forKey: SettingsKey.micGain.rawValue) }
+    }
+
+    /// When true, a combined picture-in-picture file is exported automatically
+    /// after a recording that captured both screen and camera.
+    @Published var pipAutoExport: Bool {
+        didSet { UserDefaults.standard.set(pipAutoExport, forKey: SettingsKey.pipAutoExport.rawValue) }
+    }
+
+    @Published var pipCorner: String {
+        didSet { UserDefaults.standard.set(pipCorner, forKey: SettingsKey.pipCorner.rawValue) }
+    }
+
+    @Published var startStopKeyCode: Int {
+        didSet { UserDefaults.standard.set(startStopKeyCode, forKey: SettingsKey.startStopKeyCode.rawValue) }
+    }
+
+    @Published var startStopModifiers: Int {
+        didSet { UserDefaults.standard.set(startStopModifiers, forKey: SettingsKey.startStopModifiers.rawValue) }
+    }
+
+    @Published var pauseKeyCode: Int {
+        didSet { UserDefaults.standard.set(pauseKeyCode, forKey: SettingsKey.pauseKeyCode.rawValue) }
+    }
+
+    @Published var pauseModifiers: Int {
+        didSet { UserDefaults.standard.set(pauseModifiers, forKey: SettingsKey.pauseModifiers.rawValue) }
+    }
+
+    private func persistOptionalString(_ value: String?, forKey key: SettingsKey) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key.rawValue)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key.rawValue)
         }
     }
 
@@ -105,8 +202,24 @@ class SettingsManager: ObservableObject {
 
         // Load other settings
         self.includeSystemAudio = defaults.object(forKey: SettingsKey.includeSystemAudio.rawValue) as? Bool ?? true
+        self.captureCursor = defaults.object(forKey: SettingsKey.captureCursor.rawValue) as? Bool ?? true
         self.countdownEnabled = defaults.object(forKey: SettingsKey.countdownEnabled.rawValue) as? Bool ?? true
         self.countdownSeconds = defaults.object(forKey: SettingsKey.countdownSeconds.rawValue) as? Int ?? 3
+
+        // Load last-selected devices
+        self.lastCameraID = defaults.string(forKey: SettingsKey.lastCameraID.rawValue)
+        self.lastMicrophoneID = defaults.string(forKey: SettingsKey.lastMicrophoneID.rawValue)
+        self.lastDisplayID = defaults.string(forKey: SettingsKey.lastDisplayID.rawValue)
+        self.lastRecordMode = defaults.string(forKey: SettingsKey.lastRecordMode.rawValue)
+
+        // Audio / PiP / Shortcuts
+        self.micGain = defaults.object(forKey: SettingsKey.micGain.rawValue) as? Double ?? 1.0
+        self.pipAutoExport = defaults.object(forKey: SettingsKey.pipAutoExport.rawValue) as? Bool ?? false
+        self.pipCorner = defaults.string(forKey: SettingsKey.pipCorner.rawValue) ?? "bottomRight"
+        self.startStopKeyCode = defaults.object(forKey: SettingsKey.startStopKeyCode.rawValue) as? Int ?? 15
+        self.startStopModifiers = defaults.object(forKey: SettingsKey.startStopModifiers.rawValue) as? Int ?? 768
+        self.pauseKeyCode = defaults.object(forKey: SettingsKey.pauseKeyCode.rawValue) as? Int ?? 35
+        self.pauseModifiers = defaults.object(forKey: SettingsKey.pauseModifiers.rawValue) as? Int ?? 768
 
         // Set defaults if not set
         if !defaults.bool(forKey: Self.settingsInitializedKey) {
@@ -120,6 +233,7 @@ class SettingsManager: ObservableObject {
         defaultQuality = .high
         defaultFrameRate = .fps30
         includeSystemAudio = true
+        captureCursor = true
         countdownEnabled = true
         countdownSeconds = 3
     }

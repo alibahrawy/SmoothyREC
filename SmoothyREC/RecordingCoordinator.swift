@@ -19,6 +19,7 @@ struct RecordingSessionConfiguration {
     let videoName: String
     let recordTarget: ScreenRecordTarget
     let includeSystemAudio: Bool
+    let captureCursor: Bool
     let selectedMicrophone: Microphone?
     let selectedCamera: Camera?
     let quality: RecordingQuality
@@ -28,12 +29,14 @@ struct RecordingSessionConfiguration {
     enum ScreenRecordTarget {
         case fullScreen(Display)
         case window(CaptureWindow)
+        case area(Display, CGRect, CGFloat)
     }
 
     init(
         videoName: String,
         recordTarget: ScreenRecordTarget,
         includeSystemAudio: Bool,
+        captureCursor: Bool = true,
         selectedMicrophone: Microphone?,
         selectedCamera: Camera?,
         quality: RecordingQuality,
@@ -43,6 +46,7 @@ struct RecordingSessionConfiguration {
         self.videoName = videoName
         self.recordTarget = recordTarget
         self.includeSystemAudio = includeSystemAudio
+        self.captureCursor = captureCursor
         self.selectedMicrophone = selectedMicrophone
         self.selectedCamera = selectedCamera
         self.quality = quality
@@ -215,6 +219,7 @@ class RecordingCoordinator: NSObject, ObservableObject {
     // MARK: - Private Properties
 
     private var currentConfiguration: RecordingSessionConfiguration?
+    private(set) var currentSessionDirectory: URL?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
@@ -478,11 +483,31 @@ class RecordingCoordinator: NSObject, ObservableObject {
             screenTarget = .fullScreen(display)
         case .window(let window):
             screenTarget = .window(window)
+        case .area(let display, let rect, let scale):
+            screenTarget = .area(display, rect, scale)
         }
+
+        // Resolve ONE per-recording folder up front and share it with every
+        // recorder so screen/mic/camera files land together (and same-title
+        // recordings get numbered sibling folders).
+        guard let baseDirectory = SettingsManager.shared.effectiveOutputFolder else {
+            throw CoordinatorError.screenRecorderFailed(RecordingError.invalidOutputURL)
+        }
+        let sessionDirectory = RecordingOutputFileResolver.uniqueRecordingDirectory(
+            videoName: configuration.videoName,
+            in: baseDirectory
+        )
+        do {
+            try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        } catch {
+            throw CoordinatorError.screenRecorderFailed(RecordingError.outputFileSetupFailed(error.localizedDescription))
+        }
+        currentSessionDirectory = sessionDirectory
 
         // 1. Screen Recorder Configuration
         let screenConfig = RecordingConfiguration(
             videoName: configuration.videoName,
+            outputDirectory: sessionDirectory,
             recordTarget: screenTarget,
             includeSystemAudio: configuration.includeSystemAudio,
             includeMicrophone: false,
@@ -490,7 +515,8 @@ class RecordingCoordinator: NSObject, ObservableObject {
             selectedCamera: nil,
             showCameraOverlay: false,
             quality: configuration.quality,
-            frameRate: configuration.frameRate
+            frameRate: configuration.frameRate,
+            showsCursor: configuration.captureCursor
         )
 
         // Start screen recorder first (it's the primary)
@@ -503,6 +529,7 @@ class RecordingCoordinator: NSObject, ObservableObject {
                 group.addTask {
                     let micConfig = MicrophoneConfiguration(
                         videoName: configuration.videoName,
+                        outputDirectory: sessionDirectory,
                         selectedMicrophone: microphone
                     )
                     if let error = await self.startOptionalMicrophoneRecorder(with: micConfig) {
@@ -518,6 +545,7 @@ class RecordingCoordinator: NSObject, ObservableObject {
                 group.addTask {
                     let cameraConfig = CameraConfiguration(
                         videoName: configuration.videoName,
+                        outputDirectory: sessionDirectory,
                         selectedCamera: camera,
                         quality: .medium,
                         frameRate: configuration.frameRate,

@@ -32,6 +32,10 @@
 		AABB000D000000000001 /* SettingsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF000D000000000001 /* SettingsPanelView.swift */; };
 		AABB000E000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAFF000E000000000001 /* Assets.xcassets */; };
 		AABB000F000000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAFF0010000000000001 /* Preview Assets.xcassets */; };
+		AABB0300000000000001 /* CountdownOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0300000000000001 /* CountdownOverlay.swift */; };
+		AABB0301000000000001 /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0301000000000001 /* HotKeyManager.swift */; };
+		AABB0302000000000001 /* PiPCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0302000000000001 /* PiPCompositor.swift */; };
+		AABB0303000000000001 /* RegionSelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0303000000000001 /* RegionSelectionOverlay.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +79,10 @@
 		AAFF0010000000000001 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		AAFF0011000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AAFF0012000000000001 /* SmoothyREC.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SmoothyREC.entitlements; sourceTree = "<group>"; };
+		AAFF0300000000000001 /* CountdownOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownOverlay.swift; sourceTree = "<group>"; };
+		AAFF0301000000000001 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
+		AAFF0302000000000001 /* PiPCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPCompositor.swift; sourceTree = "<group>"; };
+		AAFF0303000000000001 /* RegionSelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionOverlay.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,6 +136,10 @@
 				AAFF000B000000000001 /* CompletionView.swift */,
 				AAFF000C000000000001 /* SettingsManager.swift */,
 				AAFF000D000000000001 /* SettingsPanelView.swift */,
+				AAFF0300000000000001 /* CountdownOverlay.swift */,
+				AAFF0301000000000001 /* HotKeyManager.swift */,
+				AAFF0302000000000001 /* PiPCompositor.swift */,
+				AAFF0303000000000001 /* RegionSelectionOverlay.swift */,
 				AAFF000E000000000001 /* Assets.xcassets */,
 				AAFF000F000000000001 /* Preview Content */,
 				AAFF0011000000000001 /* Info.plist */,
@@ -282,6 +294,10 @@
 				AABB000B000000000001 /* CompletionView.swift in Sources */,
 				AABB000C000000000001 /* SettingsManager.swift in Sources */,
 				AABB000D000000000001 /* SettingsPanelView.swift in Sources */,
+				AABB0300000000000001 /* CountdownOverlay.swift in Sources */,
+				AABB0301000000000001 /* HotKeyManager.swift in Sources */,
+				AABB0302000000000001 /* PiPCompositor.swift in Sources */,
+				AABB0303000000000001 /* RegionSelectionOverlay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

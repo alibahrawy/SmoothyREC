@@ -27,6 +27,8 @@ struct MainWindowView: View {
     @State private var selectedCamera: Camera?
     @State private var selectedMicrophone: Microphone?
     @State private var recordMode: RecordMode = .fullScreen
+    @State private var selectedRegion: SelectedRegion?
+    @State private var regionController = RegionSelectionController()
 
     // UI States
     @State private var isRecording = false
@@ -36,6 +38,7 @@ struct MainWindowView: View {
     enum RecordMode: String, CaseIterable, Identifiable {
         case fullScreen = "Full Screen"
         case specificWindow = "Specific Window"
+        case area = "Area"
 
         var id: String { rawValue }
     }
@@ -89,8 +92,15 @@ struct MainWindowView: View {
             if videoName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 videoName = suggestedVideoName()
             }
+            if let savedMode = settings.lastRecordMode,
+               let mode = RecordMode(rawValue: savedMode) {
+                recordMode = mode
+            }
             Task {
                 await refreshDevices()
+                if appDelegate.consumePendingHotKeyStart() {
+                    startRecording()
+                }
             }
             // Kick off live preview immediately if a target is already selected
             // (e.g. the user reopened the window after previously picking one).
@@ -103,12 +113,20 @@ struct MainWindowView: View {
                 Task { await refreshDevices() }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .smoothyHotKeyStart)) { _ in
+            if appDelegate.consumePendingHotKeyStart() {
+                startRecording()
+            }
+        }
         .onChange(of: deviceManager.displays) { displays in
             if selectedDisplay == nil, let first = displays.first {
                 selectedDisplay = first
             }
         }
-        .onChange(of: selectedDisplay) { _ in
+        .onChange(of: selectedDisplay) { display in
+            if let display {
+                settings.lastDisplayID = String(display.id)
+            }
             startLiveScreenPreview()
         }
         .onChange(of: selectedWindow) { _ in
@@ -265,7 +283,8 @@ struct MainWindowView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: recordMode) { _ in
+            .onChange(of: recordMode) { mode in
+                settings.lastRecordMode = mode.rawValue
                 selectedWindow = nil
                 startLiveScreenPreview()
             }
@@ -328,7 +347,7 @@ struct MainWindowView: View {
                         .labelsHidden()
                     }
                 }
-            } else {
+            } else if recordMode == .specificWindow {
                 // Window Selection
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Window")
@@ -373,9 +392,65 @@ struct MainWindowView: View {
                         .labelsHidden()
                     }
                 }
+            } else {
+                areaSelectionView
             }
 
+            Toggle(isOn: $settings.captureCursor) {
+                Text("Capture mouse cursor")
+                    .font(.system(size: 12))
+            }
+            .toggleStyle(.checkbox)
+
             sourcePreviewSection
+        }
+    }
+
+    // MARK: - Area Selection
+    private var areaSelectionView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Area")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 10) {
+                Button(action: { selectRegion() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "viewfinder")
+                        Text(selectedRegion == nil ? "Select Area…" : "Reselect Area")
+                            .font(.system(size: 12))
+                    }
+                }
+                .buttonStyle(.bordered)
+
+                if let region = selectedRegion {
+                    Label(region.displayString, systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.green)
+                } else {
+                    Text("Drag a rectangle on screen to capture just that region.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func selectRegion() {
+        let display = selectedDisplay ?? deviceManager.displays.first
+        guard let display else { return }
+
+        // Hide our window so the marquee covers a clean screen, then restore.
+        let keyWindow = NSApp.keyWindow
+        keyWindow?.orderOut(nil)
+
+        regionController.begin(on: display) { region in
+            keyWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            if let region {
+                selectedRegion = region
+            }
         }
     }
 
@@ -457,6 +532,7 @@ struct MainWindowView: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .onChange(of: selectedCamera) { newCamera in
+                settings.lastCameraID = newCamera?.id
                 Task {
                     await cameraPreviewManager.switchCamera(to: newCamera)
                 }
@@ -486,9 +562,34 @@ struct MainWindowView: View {
                     }
                 }
 
-                Label("Camera is saved as its own video file so you can position the picture-in-picture in your editor.", systemImage: "doc.badge.plus")
+                Label("Camera is always saved as its own file. Recordings stay as separate screen + camera files unless you turn on picture-in-picture below.", systemImage: "doc.badge.plus")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $settings.pipAutoExport) {
+                        Text("Also export a picture-in-picture file")
+                            .font(.system(size: 12))
+                    }
+                    .toggleStyle(.checkbox)
+
+                    if settings.pipAutoExport {
+                        HStack(spacing: 8) {
+                            Text("Camera corner")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Picker("", selection: $settings.pipCorner) {
+                                ForEach(PiPCorner.allCases) { corner in
+                                    Text(corner.displayName).tag(corner.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .frame(width: 130)
+                        }
+                    }
+                }
+                .padding(.top, 2)
             } else {
                 Text(cameraGuidanceText)
                     .font(.system(size: 11))
@@ -524,6 +625,7 @@ struct MainWindowView: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .onChange(of: selectedMicrophone) { newMic in
+                settings.lastMicrophoneID = newMic?.id
                 Task {
                     await micMonitorManager.switchMicrophone(to: newMic)
                 }
@@ -612,6 +714,7 @@ struct MainWindowView: View {
         if videoName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         if recordMode == .fullScreen && selectedDisplay == nil { return false }
         if recordMode == .specificWindow && selectedWindow == nil { return false }
+        if recordMode == .area && selectedRegion == nil { return false }
         return true
     }
 
@@ -651,6 +754,10 @@ struct MainWindowView: View {
             case .specificWindow:
                 guard let window = selectedWindow else { return }
                 target = .window(window)
+            case .area:
+                guard let region = selectedRegion,
+                      let display = deviceManager.display(withID: region.displayID) ?? selectedDisplay else { return }
+                target = .area(display, region.rect, region.scale)
             }
 
             // Create session configuration
@@ -658,6 +765,7 @@ struct MainWindowView: View {
                 videoName: videoName,
                 recordTarget: target,
                 includeSystemAudio: settings.includeSystemAudio,
+                captureCursor: settings.captureCursor,
                 selectedMicrophone: selectedMicrophone,
                 selectedCamera: selectedCamera,
                 quality: settings.defaultQuality,
@@ -692,16 +800,21 @@ struct MainWindowView: View {
             return
         }
 
+        appDelegate.countdownOverlay.show(startingAt: seconds)
         for remaining in stride(from: seconds, through: 1, by: -1) {
             countdownRemaining = remaining
+            appDelegate.countdownOverlay.update(remaining)
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
+        appDelegate.countdownOverlay.hide()
 
         countdownRemaining = nil
     }
 
     private func refreshDevices(includeScreenCaptureContent: Bool = false) async {
         await deviceManager.refreshAllDevices(includeScreenCaptureContent: includeScreenCaptureContent)
+
+        restoreSavedSelections()
 
         if selectedDisplay == nil || !deviceManager.displays.contains(where: { $0.id == selectedDisplay?.id }) {
             selectedDisplay = deviceManager.displays.first
@@ -710,6 +823,30 @@ struct MainWindowView: View {
         if includeScreenCaptureContent,
            selectedWindow == nil || !deviceManager.windows.contains(where: { $0.id == selectedWindow?.id }) {
             selectedWindow = deviceManager.windows.first
+        }
+    }
+
+    /// Re-applies the user's last-used camera/mic/display so reopening the app
+    /// lands on the same setup. Only fills selections that aren't already set,
+    /// so it never overrides a choice the user just made this session.
+    private func restoreSavedSelections() {
+        if selectedDisplay == nil,
+           let savedID = settings.lastDisplayID,
+           let displayID = CGDirectDisplayID(savedID),
+           let display = deviceManager.display(withID: displayID) {
+            selectedDisplay = display
+        }
+
+        if selectedCamera == nil,
+           let savedID = settings.lastCameraID,
+           let camera = deviceManager.camera(withID: savedID) {
+            selectedCamera = camera
+        }
+
+        if selectedMicrophone == nil,
+           let savedID = settings.lastMicrophoneID,
+           let microphone = deviceManager.microphone(withID: savedID) {
+            selectedMicrophone = microphone
         }
     }
     private func suggestedVideoName() -> String {
@@ -726,6 +863,10 @@ struct MainWindowView: View {
         case .specificWindow:
             guard let selectedWindow else { return nil }
             return .window(selectedWindow)
+        case .area:
+            // Show the full display behind the selected region as context.
+            guard let selectedDisplay else { return nil }
+            return .display(selectedDisplay)
         }
     }
 
@@ -735,6 +876,8 @@ struct MainWindowView: View {
             return selectedDisplay == nil ? "Choose a display to see a live preview." : "Live preview at ~30fps. Pauses while recording."
         case .specificWindow:
             return selectedWindow == nil ? "Load windows and choose one to see a live preview." : "Live preview at ~30fps. Pauses while recording."
+        case .area:
+            return selectedRegion == nil ? "Select an area to record." : "Recording the selected \(selectedRegion?.displayString ?? "") region."
         }
     }
 

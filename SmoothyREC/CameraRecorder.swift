@@ -15,6 +15,7 @@ import VideoToolbox
 
 struct CameraConfiguration {
     let videoName: String
+    let outputDirectory: URL
     let selectedCamera: Camera
     let quality: CameraQuality
     let frameRate: FrameRate
@@ -340,16 +341,12 @@ class CameraRecorder: NSObject, ObservableObject {
     }
 
     private func setupOutputFile(configuration: CameraConfiguration) throws {
-        guard let outputDirectory = SettingsManager.shared.effectiveOutputFolder else {
-            throw CameraRecorderError.invalidOutputURL
-        }
-
         do {
             outputURL = try RecordingOutputFileResolver.preparedOutputURL(
                 videoName: configuration.videoName,
                 component: .camera,
                 fileExtension: "mov",
-                outputDirectory: outputDirectory
+                outputDirectory: configuration.outputDirectory
             )
         } catch {
             throw CameraRecorderError.outputFileSetupFailed(error.localizedDescription)
