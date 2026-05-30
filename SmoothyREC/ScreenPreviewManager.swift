@@ -17,6 +17,10 @@ final class ScreenPreviewManager: ObservableObject {
     enum Target: Hashable {
         case display(Display)
         case window(CaptureWindow)
+        /// A cropped sub-region of a display. `rect` is in points with a
+        /// top-left origin — the same value the recorder feeds to
+        /// `SCStreamConfiguration.sourceRect`, so the preview matches the take.
+        case area(Display, CGRect)
 
         var name: String {
             switch self {
@@ -24,6 +28,8 @@ final class ScreenPreviewManager: ObservableObject {
                 return display.name
             case .window(let window):
                 return window.description
+            case .area(let display, _):
+                return display.name
             }
         }
     }
@@ -158,6 +164,7 @@ final class ScreenPreviewManager: ObservableObject {
 
         let filter: SCContentFilter
         let sourceSize: CGSize
+        var sourceRect: CGRect?
 
         switch target {
         case .display(let display):
@@ -174,6 +181,23 @@ final class ScreenPreviewManager: ObservableObject {
                 exceptingWindows: []
             )
             sourceSize = CGSize(width: scDisplay.width, height: scDisplay.height)
+
+        case .area(let display, let rect):
+            guard let scDisplay = content.displays.first(where: { $0.displayID == display.id }) else {
+                throw ScreenPreviewError.sourceUnavailable("Selected display is no longer available.")
+            }
+
+            let ownApplications = content.applications.filter {
+                $0.bundleIdentifier == Bundle.main.bundleIdentifier
+            }
+            filter = SCContentFilter(
+                display: scDisplay,
+                excludingApplications: ownApplications,
+                exceptingWindows: []
+            )
+            // Preview only the chosen sub-region, exactly like the recorder.
+            sourceSize = rect.size
+            sourceRect = rect
 
         case .window(let window):
             guard let scWindow = content.windows.first(where: { $0.windowID == window.id }) else {
@@ -193,6 +217,9 @@ final class ScreenPreviewManager: ObservableObject {
         configuration.showsCursor = true
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 5)
         configuration.queueDepth = 3
+        if let sourceRect {
+            configuration.sourceRect = sourceRect
+        }
 
         if #available(macOS 14.0, *) {
             do {
@@ -256,6 +283,11 @@ final class ScreenPreviewManager: ObservableObject {
         switch target {
         case .display(let display):
             image = CGDisplayCreateImage(display.id)
+
+        case .area:
+            // CGDisplayCreateImage can't crop; defer to the SCStream path,
+            // which applies the region via sourceRect.
+            image = nil
 
         case .window(let window):
             image = CGWindowListCreateImage(
@@ -413,19 +445,14 @@ struct ScreenPreviewView: View {
     var body: some View {
         ZStack {
             if let image = previewManager.image {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.9))
-
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(1)
-                }
-                .frame(height: height)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(alignment: .bottomLeading) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(aspect(of: image), contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: height)
+                    .background(Color.black.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(alignment: .bottomLeading) {
                     if let sourceName = previewManager.previewedSourceName {
                         Text(sourceName)
                             .font(.system(size: 11, weight: .medium))
@@ -464,6 +491,13 @@ struct ScreenPreviewView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Aspect ratio (w/h) of the captured frame, so the preview hugs the
+    /// source shape instead of letterboxing inside a fixed box.
+    private func aspect(of image: NSImage) -> CGFloat {
+        guard image.size.width > 0, image.size.height > 0 else { return 16.0 / 10.0 }
+        return image.size.width / image.size.height
     }
 
     private func placeholder(
@@ -532,6 +566,7 @@ private final class LiveScreenPreviewStream: NSObject, SCStreamOutput, SCStreamD
 
         let filter: SCContentFilter
         let sourceSize: CGSize
+        var sourceRect: CGRect?
 
         switch target {
         case .display(let display):
@@ -547,6 +582,21 @@ private final class LiveScreenPreviewStream: NSObject, SCStreamOutput, SCStreamD
                 exceptingWindows: []
             )
             sourceSize = CGSize(width: scDisplay.width, height: scDisplay.height)
+
+        case .area(let display, let rect):
+            guard let scDisplay = content.displays.first(where: { $0.displayID == display.id }) else {
+                throw ScreenPreviewError.sourceUnavailable("Selected display is no longer available.")
+            }
+            let ownApplications = content.applications.filter {
+                $0.bundleIdentifier == Bundle.main.bundleIdentifier
+            }
+            filter = SCContentFilter(
+                display: scDisplay,
+                excludingApplications: ownApplications,
+                exceptingWindows: []
+            )
+            sourceSize = rect.size
+            sourceRect = rect
 
         case .window(let window):
             guard let scWindow = content.windows.first(where: { $0.windowID == window.id }) else {
@@ -565,6 +615,9 @@ private final class LiveScreenPreviewStream: NSObject, SCStreamOutput, SCStreamD
         configuration.showsCursor = true
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         configuration.queueDepth = 3
+        if let sourceRect {
+            configuration.sourceRect = sourceRect
+        }
 
         let scStream = SCStream(filter: filter, configuration: configuration, delegate: self)
 

@@ -159,7 +159,9 @@ enum PiPCompositor {
             throw PiPCompositorError.exportSessionCreationFailed
         }
         export.outputURL = outputURL
-        export.outputFileType = .mp4
+        // .mov is the safe container here: the camera is always HEVC and the
+        // screen may be HEVC too — exporting those to .mp4 fails on many Macs.
+        export.outputFileType = .mov
         export.videoComposition = videoComposition
         export.shouldOptimizeForNetworkUse = true
 

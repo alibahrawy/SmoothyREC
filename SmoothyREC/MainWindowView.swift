@@ -450,6 +450,8 @@ struct MainWindowView: View {
             NSApp.activate(ignoringOtherApps: true)
             if let region {
                 selectedRegion = region
+                // Refresh the live preview so it shows the cropped region.
+                startLiveScreenPreview()
             }
         }
     }
@@ -491,7 +493,7 @@ struct MainWindowView: View {
 
             ScreenPreviewView(
                 previewManager: screenPreviewManager,
-                height: 220
+                height: 460
             )
 
             if screenPreviewManager.errorMessage != nil {
@@ -864,8 +866,12 @@ struct MainWindowView: View {
             guard let selectedWindow else { return nil }
             return .window(selectedWindow)
         case .area:
-            // Show the full display behind the selected region as context.
             guard let selectedDisplay else { return nil }
+            // Preview just the chosen region; fall back to the full display
+            // until the user has dragged one out.
+            if let region = selectedRegion {
+                return .area(selectedDisplay, region.rect)
+            }
             return .display(selectedDisplay)
         }
     }

@@ -739,13 +739,21 @@ class CompletionViewModel: ObservableObject {
               let cameraURL = result.cameraRecordingURL else { return }
         guard pipState != .exporting else { return }
 
+        // Surface a clear message instead of a cryptic export failure if the
+        // source files aren't on disk anymore.
+        guard FileManager.default.fileExists(atPath: screenURL.path),
+              FileManager.default.fileExists(atPath: cameraURL.path) else {
+            pipState = .failed("Recording files are missing — they may have been moved or deleted.")
+            return
+        }
+
         pipState = .exporting
 
         let corner = PiPCorner(rawValue: SettingsManager.shared.pipCorner) ?? .bottomRight
         let base = RecordingOutputFileResolver.sanitizedBaseName(result.videoName)
         let timestamp = RecordingOutputFileResolver.timestampString()
         let outputURL = screenURL.deletingLastPathComponent()
-            .appendingPathComponent("\(base)_pip_\(timestamp).mp4")
+            .appendingPathComponent("\(base)_pip_\(timestamp).mov")
 
         do {
             let url = try await PiPCompositor.compose(
