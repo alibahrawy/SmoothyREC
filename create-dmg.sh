@@ -77,7 +77,7 @@ After launching:
    relaunch when prompted.
 
 Troubleshooting:
-   https://github.com/smoothyedit/smoothyrec
+   https://github.com/alibahrawy/SmoothyREC
 README
 
 # Background image (540x380, gradient with the app name)

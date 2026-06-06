@@ -1,230 +1,376 @@
+<div align="center">
+
+<img src="docs/images/icon.png" width="116" height="116" alt="SmoothyREC app icon" />
+
 # SmoothyREC
 
-A beautiful menu bar screen recorder for macOS.
+**The screen recorder you hand your client.**
 
-![macOS 13.0+](https://img.shields.io/badge/macOS-13.0+-blue.svg)
-![Swift 5](https://img.shields.io/badge/Swift-5-orange.svg)
+A native macOS menu-bar recorder that captures the screen, the webcam, and the
+microphone as **separate, independent files** — so the editor gets clean tracks
+to cut, not one baked-in MP4.
+
+[![macOS 13.0+](https://img.shields.io/badge/macOS-13.0%2B-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Swift 5](https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)](https://developer.apple.com/xcode/swiftui/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
+[![Free forever](https://img.shields.io/badge/Price-Free%20forever-22c55e.svg)](#)
+
+[**⬇︎ Download for macOS**](https://github.com/alibahrawy/SmoothyREC/releases/latest/download/SmoothyREC.dmg) · [Why it exists](#why-it-was-made) · [How it works](#how-it-works) · [Build from source](#build-from-source) · [smoothyedit.com](https://smoothyedit.com/products/smoothy-rec)
+
+<img src="docs/images/recorder.png" width="620" alt="The SmoothyREC recorder window" />
+
+</div>
+
+---
+
+## What it is
+
+SmoothyREC is a lightweight, native macOS screen recorder built for one specific
+moment: **the handoff between a client who records and an editor who edits.**
+
+It lives in the menu bar — no dock icon, no project window, no scene/source setup.
+A non-editor clicks it, picks a quality, hits **Start**, hits **Stop**. What comes
+back is the part that matters to the editor: each source written to its own file.
+
+- 🎬 **Screen** → its own video file
+- 📷 **Webcam** → its own video file (never burned into the screen)
+- 🎙️ **Microphone** → its own audio file
+- 🔊 **System audio** → captured alongside, kept isolated
+
+Drop those straight onto a timeline and reframe the webcam, re-time the mic, or
+recut the screen — each on its own track, exactly like footage you shot yourself.
+
+> **Built by an editor, for editors.** Free forever. Part of the
+> [Smoothy](https://smoothyedit.com) suite.
+
+---
+
+## Why it was made
+
+Every screen recorder on the market is built for **the person editing the footage**
+— or it flattens everything the instant you stop. Neither fits the most common
+real-world workflow for a video editor:
+
+> *"Record yourself going through this, and send it to me."*
+
+When you tell a client to do that, three things go wrong:
+
+| The tool they reach for | What you get back |
+| --- | --- |
+| **Pro tools** (OBS & friends) | Scenes, sources, encoders — so you end up on a screen-share call walking them through setup. |
+| **Quick recorders** | A single flattened MP4 with the webcam burned into a corner and audio glued to picture. Nothing to cut. |
+| **Nothing in between** | No app is *dead simple for the client* yet *produces footage that's a joy for the editor.* |
+
+SmoothyREC is that missing middle. The client experience is three clicks. The
+editor experience is separate, edit-ready tracks. That single rule — **hand the
+editor separate files, never one baked-in MP4** — is the entire reason this app
+exists, and it shapes every design decision inside it.
+
+---
 
 ## Features
 
-- **Menu Bar App** - Lives in your menu bar, no dock icon
-- **Screen Recording** - Capture your entire screen or selected display
-- **Audio Recording** - Record system audio, microphone, or both
-- **Camera Overlay** - Include webcam feed as picture-in-picture
-- **High Quality** - Up to 4K resolution at 60 FPS
-- **Modern UI** - Native SwiftUI interface
+| | |
+| --- | --- |
+| 🧩 **Separate tracks** | Screen, webcam, and mic each land as their own file in one tidy per-recording folder. |
+| 🪟 **Menu-bar only** | `LSUIElement` app — no dock icon, no window to manage. That popover is the whole interface. |
+| 🖥️ **Up to 4K · 60 FPS** | Quality presets from 720p to 4K; frame rates of 24 / 30 / 60. |
+| 🎯 **Full screen, window, or area** | Record an entire display, a single window, or a dragged-out region. |
+| 📷 **Picture-in-picture (optional)** | Want a combined file too? Export a PiP version *on top of* the separate tracks. |
+| 🔊 **System audio + mic, isolated** | Capture both at once and keep them apart. |
+| 🧭 **Guided first-run** | A one-time onboarding walks the client through macOS permissions in plain language. |
+| ⏯️ **Pause / resume / countdown** | Pause mid-take; optional countdown before recording starts. |
+| ⌨️ **Global hotkeys** | Start/stop and pause without bringing the app forward. |
+| 🪶 **Light & native** | Pure Swift + SwiftUI + ScreenCaptureKit. The whole app is a few MB. |
 
-## Requirements
+<div align="center">
+<img src="docs/images/menubar.png" width="280" alt="SmoothyREC menu-bar popover" />
+&nbsp;&nbsp;
+<img src="docs/images/onboarding.png" width="300" alt="SmoothyREC first-run permissions" />
+</div>
 
-- macOS 13.0 or later
-- Xcode 15.0 or later (for building)
+---
 
-## Installation
+## Install
 
-### From DMG
+### Download the app
 
-1. Download the latest `SmoothyREC-x.x.x.dmg` from the releases page
-2. Open the DMG and drag `SmoothyREC.app` to your Applications folder
-3. Launch SmoothyREC from your Applications folder
+1. **[Download `SmoothyREC.dmg`](https://github.com/alibahrawy/SmoothyREC/releases/latest/download/SmoothyREC.dmg)** from the latest release.
+2. Open the DMG and drag **SmoothyREC** into your **Applications** folder.
+3. **First launch:** right-click (or Control-click) **SmoothyREC** in Applications and choose **Open**, then click **Open** again in the dialog.
 
-### Build from Source
+> **Why the extra click?** SmoothyREC isn't distributed through the Mac App Store
+> and isn't notarized with a paid Apple Developer ID, so macOS Gatekeeper asks for
+> one confirmation on first launch. You only do this **once** — after that it
+> launches normally from Spotlight, Launchpad, or Applications.
+>
+> If macOS says the app *"is damaged and can't be opened"* (this happens when the
+> download picks up a quarantine flag), clear it from Terminal:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/SmoothyREC.app
+> ```
+
+### Grant permissions
+
+On first launch SmoothyREC asks for the macOS permissions it needs. The
+onboarding screen walks you through each one:
+
+| Permission | Required? | Used for |
+| --- | --- | --- |
+| **Screen Recording** | ✅ Required | Capturing your screen |
+| **Microphone** | Optional | Recording mic audio as its own track |
+| **Camera** | Optional | Recording the webcam as its own track |
+
+Grant them in **System Settings → Privacy & Security**, then relaunch when
+prompted. (macOS keys these permissions to the app's code signature — see
+[`setup-dev-certificate.sh`](setup-dev-certificate.sh) for why a stable signature
+matters when building from source.)
+
+---
+
+## How it works
+
+SmoothyREC's defining trait — separate files that stay perfectly in sync — comes
+from running **three independent recorders against one shared clock** and writing
+each to its own AVFoundation file. Here's the shape of it:
+
+```
+                        ┌─────────────────────────────┐
+                        │     RecordingCoordinator     │   @MainActor
+                        │  • owns one shared CMClock   │   (the conductor)
+                        │  • one per-recording folder  │
+                        └───────────────┬─────────────┘
+              syncTime = CMClockGetTime(hostTimeClock)
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+┌───────────────┐      ┌────────────────┐      ┌────────────────┐
+│ ScreenRecorder│      │  MicRecorder   │      │ CameraRecorder │
+│ ScreenCapture │      │  AVCapture →   │      │  AVCapture →   │
+│ Kit (SCStream)│      │  AVAssetWriter │      │  AVAssetWriter │
+└───────┬───────┘      └───────┬────────┘      └───────┬────────┘
+        ▼                      ▼                       ▼
+   screen.mp4 / .mov        mic.m4a               camera.mov
+        └───────────── one per-recording folder ──────────────┘
+```
+
+### The coordinator ([`RecordingCoordinator.swift`](SmoothyREC/RecordingCoordinator.swift))
+
+A `@MainActor ObservableObject` that conducts the session:
+
+- **One shared sync clock.** At `start()`, it grabs `CMClockGetHostTimeClock()` and
+  reads a single `syncTime`. The camera writer starts its session *at that exact
+  timestamp* (`writer.startSession(atSourceTime: syncTime)`), so the camera and
+  screen line up frame-accurately on the timeline instead of drifting.
+- **One output folder.** It resolves a single per-recording directory up front
+  (`Title/`, then `Title 2/`, `Title 3/` for repeats) and hands the same folder to
+  every recorder, so all three files land together and never collide.
+- **Screen is primary; mic & camera are optional.** The screen recorder must
+  succeed. The mic and camera start *concurrently* in a `TaskGroup`; if either
+  fails it's recorded as a non-fatal **warning**, and the session still produces a
+  usable screen recording.
+- **Synchronized lifecycle.** `pause` / `resume` / `stop` fan out to all three
+  recorders at once (via `TaskGroup`), and pause/resume compensates the start time
+  so the displayed duration stays correct.
+
+### Screen capture ([`ScreenRecorder.swift`](SmoothyREC/ScreenRecorder.swift))
+
+Built on **ScreenCaptureKit** with two code paths, chosen by OS version:
+
+- **macOS 15+** → uses the system-native `SCRecordingOutput`, which writes an
+  `.mp4` (H.264) directly. Less code, less CPU, fewer chances for drift.
+- **macOS 13–14** → falls back to a manual pipeline: an `SCStream` delivers
+  `CMSampleBuffer`s to a serial writer queue that feeds an `AVAssetWriter`
+  (`.mov`), trying **H.264** first and **HEVC** as a fallback codec. System audio
+  is encoded to AAC (48 kHz stereo) on its own writer input.
+
+The target can be a **full display**, a **single window** (`SCContentFilter(desktopIndependentWindow:)`),
+or a **dragged-out area** (`SCStreamConfiguration.sourceRect`). Capture is sized
+from quality presets and snapped to even dimensions so every codec accepts it.
+
+| Preset | Resolution | Video bitrate |
+| --- | --- | --- |
+| Low | 1280 × 720 | 5 Mbps |
+| Medium | 1920 × 1080 | 10 Mbps |
+| High | 2560 × 1440 | 20 Mbps |
+| Ultra | 3840 × 2160 | 40 Mbps |
+
+### Microphone & camera ([`MicRecorder.swift`](SmoothyREC/MicRecorder.swift) · [`CameraRecorder.swift`](SmoothyREC/CameraRecorder.swift))
+
+Each runs its own `AVCaptureSession` and writes its own file:
+
+- **Mic** → AAC in an `.m4a` container.
+- **Camera** → HEVC in a `.mov` container, its writer session pinned to the shared
+  `syncTime`.
+
+Because they're separate `AVAssetWriter`s, a failure in one never corrupts the
+others — and the editor gets discrete tracks instead of a flattened mix.
+
+### Optional picture-in-picture ([`PiPCompositor.swift`](SmoothyREC/PiPCompositor.swift))
+
+When you *do* want a single ready-to-share file, `PiPCompositor` builds an
+`AVMutableComposition` that overlays the camera track onto the screen track and
+mixes the audio — producing one combined export **in addition to**, never instead
+of, the separate source files.
+
+### Concurrency model
+
+Real-time capture is threading-heavy, so SmoothyREC is deliberate about it:
+the public API is `@MainActor`, raw sample buffers are handled on dedicated
+serial dispatch queues, shared writer state is guarded by `NSLock`, and the async
+boundaries to ScreenCaptureKit's delegate callbacks are bridged with
+`CheckedContinuation`s. Concurrent start/stop across the three recorders uses
+`withTaskGroup`.
+
+### Output layout
+
+Every recording is a self-contained folder:
+
+```
+~/Movies/SmoothyREC/
+└── Client Walkthrough/
+    ├── Client Walkthrough_screen_2026-06-06_14-22-08.mp4
+    ├── Client Walkthrough_mic_2026-06-06_14-22-08.m4a
+    └── Client Walkthrough_camera_2026-06-06_14-22-08.mov
+```
+
+These are standard files. Drop them straight into SmoothyEdit, SmoothyDesktop,
+Premiere, Final Cut, Resolve — anything.
+
+For a deeper dive (delegate flow, error/warning model, signing rationale), see
+**[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
+
+---
+
+## Build from source
+
+**Requirements:** macOS 13+, Xcode 15+ (developed against Xcode 26).
 
 ```bash
-git clone https://github.com/yourusername/SmoothyREC.git
+git clone https://github.com/alibahrawy/SmoothyREC.git
 cd SmoothyREC
+
+# Optional but recommended: create a stable local signing identity so macOS
+# remembers your Screen Recording permission across rebuilds.
+./setup-dev-certificate.sh
+
+# Build a debug app and run it
 ./build-dev.sh
 open build/SmoothyREC.app
 ```
 
-## Permissions
-
-On first launch, SmoothyREC will request the following permissions:
-
-1. **Screen Recording** - Required to capture your screen
-2. **Camera** - Required for camera overlay (optional)
-3. **Microphone** - Required for microphone audio (optional)
-
-To grant permissions:
-1. Go to **System Settings > Privacy & Security**
-2. Enable permissions for SmoothyREC in the respective sections
-
-## Usage
-
-1. Click the **record icon** in your menu bar to open the control panel
-2. Configure your recording settings:
-   - Select quality (720p, 1080p, 1440p, 4K)
-   - Set frame rate (24, 30, 60 FPS)
-   - Choose audio source (System Audio, Microphone, Both)
-   - Enable camera overlay (optional)
-3. Click **Start Recording**
-4. Click **Stop Recording** when finished
-
-Recordings are saved to your Movies folder with the format `SmoothyREC_YYYY-MM-DD_HH-MM-SS.mov`.
-
-## Building for Distribution
-
-### Unsigned Build (for testing)
+### Build a release DMG
 
 ```bash
-./build-dev.sh
+# Release build (unsigned / ad-hoc), then package the installer
+xcodebuild build -project SmoothyREC.xcodeproj -scheme SmoothyREC \
+  -configuration Release -derivedDataPath build/DerivedData \
+  CODE_SIGNING_ALLOWED=NO
+cp -R build/DerivedData/Build/Products/Release/SmoothyREC.app build/
+codesign --force --deep --sign - \
+  --entitlements SmoothyREC/SmoothyREC.entitlements build/SmoothyREC.app
+
+brew install create-dmg            # one-time
+./create-dmg.sh build . SmoothyREC.dmg "SmoothyREC Installer"
 ```
 
-### Creating a DMG Installer
-
-The easiest way to create a professional DMG is using `create-dmg`:
-
-#### 1. Install create-dmg
+### Signed & notarized build (with a paid Apple Developer ID)
 
 ```bash
-brew install create-dmg
-```
-
-#### 2. Create the DMG
-
-```bash
-# Build the app first
-./build-dev.sh
-
-# Create the DMG
-./create-dmg.sh
-
-# Or specify custom directories:
-./create-dmg.sh build ./releases
-```
-
-This creates `SmoothyREC.dmg` with:
-- Custom background with app name
-- App icon positioned on the left
-- Applications folder shortcut on the right
-- Clean, professional appearance
-- UDZO compression for smaller file size
-
-### Signed Build (for distribution)
-
-1. Update `build-and-sign.sh` with your Developer ID
-2. Run the build script:
-
-```bash
+export DEVELOPER_ID='Developer ID Application: Your Name (TEAMID)'
 ./build-and-sign.sh
 ```
 
-This will:
-- Build the app
-- Sign with your Developer ID
-- Create a DMG
-- Submit for notarization
-- Staple the notarization ticket
+This signs, builds a DMG, submits it to Apple for notarization, and staples the
+ticket — producing a build with no Gatekeeper warning.
 
-## Project Structure
+---
+
+## Project structure
 
 ```
 SmoothyREC/
 ├── SmoothyREC/
-│   ├── SmoothyRECApp.swift           # App entry point & menu bar setup
-│   ├── ContentView.swift             # Main popover UI
-│   ├── MainWindowView.swift          # Recording setup window
-│   ├── SettingsView.swift            # Full settings panel
-│   ├── SettingsPanelView.swift       # Quick settings from menu bar
-│   ├── RecordingStatusView.swift     # Recording controls popover
-│   ├── CompletionView.swift          # Post-recording file manager
-│   ├── ScreenRecorder.swift          # Screen capture engine
-│   ├── CameraRecorder.swift          # Camera capture engine
-│   ├── MicRecorder.swift             # Microphone capture engine
-│   ├── RecordingCoordinator.swift    # Syncs all recorders
-│   ├── DeviceManager.swift           # Device enumeration
+│   ├── SmoothyRECApp.swift           # @main entry + NSApplicationDelegate
+│   ├── AppDelegate+StatusBar.swift   # Menu-bar (NSStatusItem) setup
+│   ├── AppDelegate+Windows.swift     # Window lifecycle
+│   ├── AppDelegate+Notifications.swift
+│   ├── RecordingCoordinator.swift    # ★ Conducts the three recorders + sync clock
+│   ├── ScreenRecorder.swift          # ★ ScreenCaptureKit capture engine
+│   ├── CameraRecorder.swift          # ★ Webcam capture engine (synced)
+│   ├── MicRecorder.swift             # ★ Microphone capture engine
+│   ├── PiPCompositor.swift           # Optional combined PiP export
+│   ├── RecordingSupport.swift        # Shared types + output-file resolver
+│   ├── DeviceManager.swift           # Camera/mic/display enumeration
 │   ├── SettingsManager.swift         # User preferences
-│   ├── Assets.xcassets/              # App icons
-│   ├── SmoothyREC.entitlements       # App entitlements
-│   └── Info.plist                    # App configuration (LSUIElement)
-├── SmoothyREC.xcodeproj/             # Xcode project
-├── build.sh                          # Build script (unsigned)
-├── build-and-sign.sh                 # Build script (signed)
-├── build-dev.sh                      # Quick dev build
-├── create-dmg.sh                     # DMG creation script
+│   ├── HotKeyManager.swift           # Global keyboard shortcuts
+│   ├── *View.swift                   # SwiftUI: onboarding, recorder, settings, completion
+│   ├── *Overlay.swift / *Manager.swift # Countdown, region select, previews
+│   ├── Assets.xcassets/              # App + menu-bar icons
+│   ├── SmoothyREC.entitlements       # screen-recording / camera / mic / no-sandbox
+│   └── Info.plist                    # LSUIElement + usage descriptions
+├── SmoothyRECTests/                  # Unit tests (output-file resolver, etc.)
+├── docs/
+│   ├── ARCHITECTURE.md               # Deep "how it works"
+│   └── images/                       # Screenshots used in this README
+├── build-dev.sh                      # Quick debug build (+ stable signing)
+├── build.sh / build-and-sign.sh      # Release / signed+notarized builds
+├── create-dmg.sh                     # DMG installer packaging
+├── setup-dev-certificate.sh          # One-time stable dev signing identity
 └── README.md
 ```
 
-## Configuration
+---
 
-### Info.plist
+## Where it fits in the Smoothy suite
 
-Key settings:
-- `LSUIElement` = `true` - Runs as menu bar app (no dock icon)
-- `NSCameraUsageDescription` - Camera permission prompt
-- `NSMicrophoneUsageDescription` - Microphone permission prompt
+SmoothyREC is the **capture** front-end of the [Smoothy](https://smoothyedit.com)
+toolset — the thing you hand a non-editor:
 
-### Entitlements
+- Recordings open in **SmoothyDesktop** as a ready-made multi-track project.
+- Each track also works in **SmoothyEdit**, since they're standard video/audio files.
+- It's deliberately *not* an editor and *not* a live-streaming tool — it does one
+  job, the handoff, well.
 
-The app requires these entitlements for screen recording:
+→ Learn more at **[smoothyedit.com/products/smoothy-rec](https://smoothyedit.com/products/smoothy-rec)**
 
-```xml
-<key>com.apple.security.screen-recording</key>
-<true/>
-<key>com.apple.security.device.audio-input</key>
-<true/>
-<key>com.apple.security.device.camera</key>
-<true/>
-<key>com.apple.security.device.microphone</key>
-<true/>
-```
+---
 
-**Note:** App Sandbox is disabled (`com.apple.security.app-sandbox` = `false`) to allow screen recording functionality.
+## Keyboard shortcuts
 
-## Keyboard Shortcuts
+| Shortcut | Action |
+| --- | --- |
+| `⌃⌘R` | Start / Stop recording |
+| `⌃⌘P` | Pause / Resume |
+| `⌃⌘S` | Open Settings |
 
-- `⌃⌘R` - Start/Stop Recording
-- `⌃⌘P` - Pause/Resume
-- `⌃⌘S` - Open Settings
+---
 
-## DMG Creation Details
+## FAQ
 
-The `create-dmg.sh` script uses [create-dmg](https://github.com/create-dmg/create-dmg) to generate a professional installer:
+**Is it really free?** Yes — free forever, MIT-licensed, source in this repo.
 
-### Features
-- **Custom Background**: Gradient background with app name
-- **Icon Layout**: App on the left, Applications shortcut on the right
-- **Window Size**: 540×380 pixels (standard DMG window)
-- **Compression**: UDZO format for optimal size
-- **Internet Enable**: Disabled (prevents "downloaded from internet" warning)
+**Why is there a security warning on first launch?** The public build isn't
+notarized with a paid Apple Developer ID. Right-click → Open once (see
+[Install](#install)). Build it yourself or notarize it to remove the warning.
 
-### DMG Layout
-```
-┌──────────────────────────────────────┐
-│      SmoothyREC                      │
-│                                      │
-│  [🔴 SmoothyREC.app]  →  [📂 Apps]  │
-│       (drag here)                      │
-│                                      │
-└──────────────────────────────────────┘
-```
+**Where do recordings go?** Into a per-recording folder under your chosen output
+location (Movies by default), with the screen, mic, and camera files side by side.
 
-### Usage Examples
+**Can it make one combined file?** Yes — enable picture-in-picture to also export
+a single merged file alongside the separate tracks.
 
-```bash
-# Use default build directory
-./create-dmg.sh
+**Does it stream?** No. SmoothyREC is for clean recorded takes, not live broadcast.
 
-# Specify build directory
-./create-dmg.sh ./build
-
-# Specify both build and output directories
-./create-dmg.sh ./build ./releases
-```
-
-The script will:
-1. Search for `SmoothyREC.app` in common build locations
-2. Generate a background image
-3. Create the DMG with proper layout
-4. Show file size and verify contents
-5. Clean up temporary files
+---
 
 ## License
 
-MIT License - See LICENSE file for details
+[MIT](LICENSE) © Ali Bahrawy
 
-## Credits
-
-Built with:
-- [SwiftUI](https://developer.apple.com/xcode/swiftui/)
-- [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)
-- [AVFoundation](https://developer.apple.com/documentation/avfoundation)
+Built with [SwiftUI](https://developer.apple.com/xcode/swiftui/),
+[ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit),
+and [AVFoundation](https://developer.apple.com/documentation/avfoundation).
+</content>
+</invoke>
