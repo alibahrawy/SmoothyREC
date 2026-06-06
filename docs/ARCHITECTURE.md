@@ -275,7 +275,7 @@ Screen Recording is **required**; camera and mic are **optional**
 
 macOS keys TCC permissions to the app's **code-signature hash**. An ad-hoc
 signature changes on every rebuild, so macOS keeps "forgetting" your granted
-Screen Recording permission. [`setup-dev-certificate.sh`](../SmoothyREC/../setup-dev-certificate.sh)
+Screen Recording permission. [`setup-dev-certificate.sh`](../setup-dev-certificate.sh)
 creates a stable self-signed identity so permissions persist across rebuilds while
 developing. The public release is ad-hoc/unsigned (no paid Developer ID), which is
 why first launch needs a one-time right-click → Open.
