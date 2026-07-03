@@ -99,15 +99,28 @@ exists, and it shapes every design decision inside it.
 
 1. **[Download `SmoothyREC.dmg`](https://github.com/alibahrawy/SmoothyREC/releases/latest/download/SmoothyREC.dmg)** from the latest release.
 2. Open the DMG and drag **SmoothyREC** into your **Applications** folder.
-3. **First launch:** right-click (or Control-click) **SmoothyREC** in Applications and choose **Open**, then click **Open** again in the dialog.
+3. **First launch:** macOS will say it *"could not verify SmoothyREC is free of
+   malware"*. That's Gatekeeper noticing the app isn't notarized — here's the
+   supported way past it:
 
-> **Why the extra click?** SmoothyREC isn't distributed through the Mac App Store
-> and isn't notarized with a paid Apple Developer ID, so macOS Gatekeeper asks for
-> one confirmation on first launch. You only do this **once** — after that it
-> launches normally from Spotlight, Launchpad, or Applications.
+   **macOS 15 (Sequoia) and newer:**
+   1. Double-click SmoothyREC, then click **Done** (not *Move to Trash*).
+   2. Open **System Settings → Privacy & Security**, scroll to the Security
+      section — you'll see *"SmoothyREC" was blocked to protect your Mac*.
+   3. Click **Open Anyway** and confirm.
+
+   **macOS 13–14:** right-click (or Control-click) **SmoothyREC** in
+   Applications, choose **Open**, then click **Open** in the dialog.
+
+> **Why the extra step?** SmoothyREC isn't distributed through the Mac App Store
+> and isn't notarized with a paid Apple Developer ID, so macOS Gatekeeper asks
+> for one explicit confirmation. You only do this **once** — after that it
+> launches normally from Spotlight, Launchpad, or Applications. The warning is
+> about the missing signature, not about anything found in the app — the full
+> source is in this repo if you'd rather build it yourself.
 >
-> If macOS says the app *"is damaged and can't be opened"* (this happens when the
-> download picks up a quarantine flag), clear it from Terminal:
+> Terminal alternative (clears the quarantine flag in one step, also fixes a
+> *"damaged and can't be opened"* message):
 >
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/SmoothyREC.app
@@ -353,7 +366,8 @@ toolset — the thing you hand a non-editor:
 **Is it really free?** Yes — free forever, MIT-licensed, source in this repo.
 
 **Why is there a security warning on first launch?** The public build isn't
-notarized with a paid Apple Developer ID. Right-click → Open once (see
+notarized with a paid Apple Developer ID. On macOS 15+ use System Settings →
+Privacy & Security → **Open Anyway**; on macOS 13–14 right-click → Open (see
 [Install](#install)). Build it yourself or notarize it to remove the warning.
 
 **Where do recordings go?** Into a per-recording folder under your chosen output
