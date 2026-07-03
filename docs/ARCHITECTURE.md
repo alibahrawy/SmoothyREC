@@ -26,16 +26,21 @@ constraint:
 
 ## Process & UI shape
 
-SmoothyREC is a single-process AppKit/SwiftUI menu-bar app.
+SmoothyREC is a single-process AppKit/SwiftUI app with both a Dock presence and
+a menu bar item.
 
 - **`@main SmoothyRECApp`** uses `@NSApplicationDelegateAdaptor` to bring up an
   `AppDelegate` (`NSApplicationDelegate`).
-- **`LSUIElement = true`** in `Info.plist` makes it an *accessory* app: it lives
-  in the menu bar via `NSStatusItem` ([`AppDelegate+StatusBar.swift`](../SmoothyREC/AppDelegate+StatusBar.swift))
-  with no dock icon and no default window.
+- The activation policy is **`.regular`**: the app shows in the Dock and ⌘Tab
+  so it always reads as "open" while running. It also keeps an `NSStatusItem`
+  ([`AppDelegate+StatusBar.swift`](../SmoothyREC/AppDelegate+StatusBar.swift))
+  that shows a live duration during recording. Closing the window keeps the
+  app running; quitting removes the menu bar item with it. Quitting during a
+  recording prompts Save / Discard / Cancel (`applicationShouldTerminate`).
 - SwiftUI views (`MainWindowView`, `SettingsView`, `OnboardingView`,
   `RecordingStatusView`, `CompletionView`, overlays) are presented from the
-  delegate as needed. The menu-bar popover is the primary surface.
+  delegate as needed. Windows and their hosting controllers are created once
+  and reused, so form state survives close/reopen.
 
 ---
 
@@ -106,10 +111,34 @@ start()
 
 ### 4. Pause / resume
 
-`pause()` and `resume()` fan out to all three recorders. `resume()` recomputes the
-start time as `Date().addingTimeInterval(-pausedDuration)` so the on-screen
-duration continues seamlessly across the paused window. `stop()` resumes first if
-paused, so every writer flushes cleanly.
+`pause()` and `resume()` fan out to all three recorders. Pause is real on both
+screen-capture paths, with different mechanics:
+
+- **Writer path (mic, camera, macOS 13–14 screen)**: while paused, incoming
+  sample buffers are dropped; on resume, later buffers are shifted earlier by
+  the accumulated pause duration (`SampleBufferRetimer`), so each file plays
+  as one continuous take. The asset writer and its inputs are never touched
+  mid-session — finishing an input and re-calling `startSession` throws an
+  NSException.
+- **Native path (macOS 15+ `SCRecordingOutput`)**: ScreenCaptureKit has no
+  pause API, so pause finalizes the current *segment* file (`… part1.mp4`),
+  resume starts capture into a new segment, and stop stitches the segments
+  into the final file with a lossless `AVAssetExportPresetPassthrough`
+  re-mux. A recording with no pauses is just renamed.
+
+`resume()` recomputes the start time as
+`Date().addingTimeInterval(-pausedDuration)` so the on-screen duration
+continues seamlessly. `stop()` works directly from the paused state — every
+recorder can finalize without briefly resuming capture.
+
+### 4b. Stem alignment
+
+All writer-based stems anchor their timelines at the coordinator's shared sync
+clock (`syncTime`): the camera writer starts its session there, and the mic
+writer now does too. The screen file starts a few hundred ms later (stream
+startup), and that offset is captured (`ScreenRecorder.captureAnchor`) and
+carried in `RecordingResult.screenStartOffset` so the PiP compositor can skip
+the camera/mic lead-in and keep lip sync.
 
 ### 5. Stop — `RecordingCoordinator.stop()`
 

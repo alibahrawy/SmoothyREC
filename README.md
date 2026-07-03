@@ -29,9 +29,10 @@ to cut, not one baked-in MP4.
 SmoothyREC is a lightweight, native macOS screen recorder built for one specific
 moment: **the handoff between a client who records and an editor who edits.**
 
-It lives in the menu bar — no dock icon, no project window, no scene/source setup.
-A non-editor clicks it, picks a quality, hits **Start**, hits **Stop**. What comes
-back is the part that matters to the editor: each source written to its own file.
+No project window, no scene/source setup. A non-editor opens it, picks a
+quality, hits **Start**, hits **Stop** — from the window or straight from the
+menu bar timer. What comes back is the part that matters to the editor: each
+source written to its own file.
 
 - 🎬 **Screen** → its own video file
 - 📷 **Webcam** → its own video file (never burned into the screen)
@@ -74,7 +75,7 @@ exists, and it shapes every design decision inside it.
 | | |
 | --- | --- |
 | 🧩 **Separate tracks** | Screen, webcam, and mic each land as their own file in one tidy per-recording folder. |
-| 🪟 **Menu-bar only** | `LSUIElement` app — no dock icon, no window to manage. That popover is the whole interface. |
+| 🪟 **Menu bar + Dock** | A live recording timer in the menu bar, a normal Dock presence so the app always reads as open. Close the window and it keeps running; quit and everything goes with it. |
 | 🖥️ **Up to 4K · 60 FPS** | Quality presets from 720p to 4K; frame rates of 24 / 30 / 60. |
 | 🎯 **Full screen, window, or area** | Record an entire display, a single window, or a dragged-out region. |
 | 📷 **Picture-in-picture (optional)** | Want a combined file too? Export a PiP version *on top of* the separate tracks. |
