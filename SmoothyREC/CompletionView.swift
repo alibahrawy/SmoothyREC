@@ -761,7 +761,8 @@ class CompletionViewModel: ObservableObject {
                 cameraURL: cameraURL,
                 microphoneURL: result.microphoneRecordingURL,
                 outputURL: outputURL,
-                corner: corner
+                corner: corner,
+                sourceStartOffset: result.screenStartOffset
             )
             if let size = fileSize(at: url) {
                 fileItems.append(FileItem(fileURL: url, type: .combined, fileSize: size))

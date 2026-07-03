@@ -202,6 +202,18 @@ class ScreenRecorder: NSObject, ObservableObject {
         var hasStartedWriting = false
         var videoStartTime: CMTime?
         var frameCount = 0
+        var isPaused = false
+        var pauseStartedAt: CMTime?
+        var pauseOffset: CMTime = .zero
+        var nativeRecordingFinished = false
+        // Native pause records each run of capture into its own segment file;
+        // stop stitches them into outputURL with a lossless passthrough export.
+        var nativeSegmentURLs: [URL] = []
+        // Host-clock time the file's timeline actually starts at — first video
+        // frame PTS (writer path) or the recording-did-start callback (native).
+        // The coordinator subtracts the session syncTime from this to know how
+        // far the camera/mic stems lead the screen file.
+        var captureAnchorTime: CMTime?
     }
 
     nonisolated(unsafe) private var recorderState = RecorderState()
@@ -211,6 +223,7 @@ class ScreenRecorder: NSObject, ObservableObject {
     private var outputURL: URL?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
+    private var pauseBeganAt: Date?
     private var nativeRecordingOutput: AnyObject?
 
     // Audio capture
@@ -290,14 +303,27 @@ class ScreenRecorder: NSObject, ObservableObject {
         return false
     }
 
+    /// Both paths pause now: the writer path drops + retimes samples, and the
+    /// native SCRecordingOutput path records segments that stop stitches back
+    /// together.
+    var supportsPause: Bool {
+        true
+    }
+
+    /// Host-clock time this recording's file timeline begins at (nil until the
+    /// first frame lands / native recording starts).
+    var captureAnchor: CMTime? {
+        readState { $0.captureAnchorTime }
+    }
+
     // MARK: - Public Methods
 
     func startRecording(configuration: RecordingConfiguration) async throws {
+        // Throw for every non-startable state (.stopping, .preparing, .paused) —
+        // returning silently here used to let the coordinator carry on into a
+        // "recording" state with no capture running.
         guard state.canStart else {
-            if case .recording = state {
-                throw RecordingError.alreadyRecording
-            }
-            return
+            throw RecordingError.alreadyRecording
         }
 
         state = .preparing
@@ -310,7 +336,15 @@ class ScreenRecorder: NSObject, ObservableObject {
             try setupOutputFile(configuration: configuration, useNativeRecordingOutput: useNativeRecordingOutput)
 
             if useNativeRecordingOutput {
-                try await setupCaptureStream(configuration: configuration, useNativeRecordingOutput: true)
+                guard let segmentURL = nativeSegmentURL(index: 1) else {
+                    throw RecordingError.invalidOutputURL
+                }
+                updateState { $0.nativeSegmentURLs = [segmentURL] }
+                try await setupCaptureStream(
+                    configuration: configuration,
+                    useNativeRecordingOutput: true,
+                    nativeSegmentURL: segmentURL
+                )
             } else {
                 try setupAssetWriter(configuration: configuration)
                 try await setupCaptureStream(configuration: configuration, useNativeRecordingOutput: false)
@@ -366,6 +400,7 @@ class ScreenRecorder: NSObject, ObservableObject {
         stopMicrophoneCapture()
 
         try await stopCaptureAndFinalizeRecording()
+        try await consolidateNativeSegmentsIfNeeded()
 
         guard let outputURL = outputURL else {
             throw RecordingError.invalidOutputURL
@@ -381,18 +416,85 @@ class ScreenRecorder: NSObject, ObservableObject {
         return outputURL
     }
 
-    func pauseRecording() {
-        if case .recording = state {
-            state = .paused
-            stopDurationTimer()
+    /// Writer path: pause drops incoming samples and resume shifts later
+    /// samples back by the paused duration, so the file plays as one
+    /// continuous take. Native path: pause finalizes the current segment file
+    /// and resume starts capture into a new one; stop stitches the segments.
+    func pauseRecording() async {
+        guard case .recording = state else { return }
+        let isNative = readState { $0.usesNativeRecordingOutput }
+        let paused = updateState { state -> Bool in
+            guard state.isRecording, !state.isPaused else { return false }
+            state.isPaused = true
+            state.pauseStartedAt = isNative ? nil : CMClockGetTime(CMClockGetHostTimeClock())
+            return true
+        }
+        guard paused else { return }
+        pauseBeganAt = Date()
+        state = .paused
+        stopDurationTimer()
+
+        if isNative {
+            // Finalize this segment; resume starts the next one.
+            try? await stopNativeRecording()
+            captureStream = nil
+            nativeRecordingOutput = nil
         }
     }
 
-    func resumeRecording() {
-        if state == .paused, let startTime = recordingStartTime {
-            state = .recording(startTime: startTime)
-            startDurationTimer()
+    func resumeRecording() async {
+        guard state == .paused else { return }
+        let isNative = readState { $0.usesNativeRecordingOutput }
+
+        if isNative {
+            guard let configuration = currentConfiguration else { return }
+            let segmentIndex = readState { $0.nativeSegmentURLs.count } + 1
+            guard let segmentURL = nativeSegmentURL(index: segmentIndex) else { return }
+
+            do {
+                updateState { state in
+                    state.nativeRecordingFinished = false
+                    state.nativeSegmentURLs.append(segmentURL)
+                }
+                try await setupCaptureStream(
+                    configuration: configuration,
+                    useNativeRecordingOutput: true,
+                    nativeSegmentURL: segmentURL
+                )
+                guard let stream = captureStream else {
+                    throw RecordingError.captureStreamFailed(
+                        NSError(domain: "SmoothyREC", code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "Capture stream not recreated after pause"])
+                    )
+                }
+                try await startNativeRecording(on: stream)
+            } catch {
+                updateState { state in
+                    state.nativeSegmentURLs.removeAll { $0 == segmentURL }
+                }
+                failRecording(with: RecordingError.captureStreamFailed(error))
+                return
+            }
         }
+
+        let resumed = updateState { state -> Bool in
+            guard state.isRecording, state.isPaused else { return false }
+            if let startedAt = state.pauseStartedAt {
+                state.pauseOffset = state.pauseOffset + (CMClockGetTime(CMClockGetHostTimeClock()) - startedAt)
+            }
+            state.pauseStartedAt = nil
+            state.isPaused = false
+            return true
+        }
+        guard resumed else { return }
+        if let began = pauseBeganAt {
+            recordingStartTime = recordingStartTime?.addingTimeInterval(Date().timeIntervalSince(began))
+        }
+        pauseBeganAt = nil
+        if let startTime = recordingStartTime {
+            state = .recording(startTime: startTime)
+        }
+        startDurationTimer()
     }
 
     func discardRecording() async {
@@ -403,6 +505,9 @@ class ScreenRecorder: NSObject, ObservableObject {
 
         if let outputURL = outputURL {
             try? FileManager.default.removeItem(at: outputURL)
+        }
+        for segment in readState({ $0.nativeSegmentURLs }) {
+            try? FileManager.default.removeItem(at: segment)
         }
 
         await cleanup()
@@ -460,6 +565,9 @@ class ScreenRecorder: NSObject, ObservableObject {
         }
 
         writer.shouldOptimizeForNetworkUse = false
+        // Write movie fragments so a crash or mid-recording failure leaves a
+        // playable file instead of a .mov with no moov atom.
+        writer.movieFragmentInterval = CMTime(seconds: 5, preferredTimescale: 600)
 
         updateState { state in
             state.assetWriter = writer
@@ -595,7 +703,11 @@ class ScreenRecorder: NSObject, ObservableObject {
         }
     }
 
-    private func setupCaptureStream(configuration: RecordingConfiguration, useNativeRecordingOutput: Bool) async throws {
+    private func setupCaptureStream(
+        configuration: RecordingConfiguration,
+        useNativeRecordingOutput: Bool,
+        nativeSegmentURL: URL? = nil
+    ) async throws {
         guard CGPreflightScreenCaptureAccess() else {
             throw RecordingError.permissionDenied
         }
@@ -681,7 +793,10 @@ class ScreenRecorder: NSObject, ObservableObject {
         }
 
         if useNativeRecordingOutput {
-            try setupNativeRecordingOutput(on: captureStream)
+            guard let recordingURL = nativeSegmentURL ?? outputURL else {
+                throw RecordingError.invalidOutputURL
+            }
+            try setupNativeRecordingOutput(on: captureStream, to: recordingURL)
         } else {
             try captureStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global(qos: .userInteractive))
 
@@ -807,9 +922,16 @@ class ScreenRecorder: NSObject, ObservableObject {
             state.hasStartedWriting = false
             state.videoStartTime = nil
             state.frameCount = 0
+            state.isPaused = false
+            state.pauseStartedAt = nil
+            state.pauseOffset = .zero
+            state.nativeRecordingFinished = false
+            state.captureAnchorTime = nil
+            state.nativeSegmentURLs = []
         }
         currentConfiguration = nil
         recordingStartTime = nil
+        pauseBeganAt = nil
     }
 
     // MARK: - Helper Methods
@@ -910,7 +1032,11 @@ class ScreenRecorder: NSObject, ObservableObject {
         stopMicrophoneCapture()
 
         Task {
+            // Salvage what was captured: finalize the writer instead of
+            // abandoning it, so a mid-recording failure (display unplugged,
+            // encoder error) keeps the footage up to the failure point.
             try? await self.captureStream?.stopCapture()
+            try? await self.finishWriting()
             await self.cleanup()
         }
     }
@@ -947,6 +1073,12 @@ class ScreenRecorder: NSObject, ObservableObject {
     private func stopNativeRecording() async throws {
         guard let stream = captureStream else { return }
 
+        // The system already ended the stream (user clicked Stop in the macOS
+        // menu bar indicator) and the recording output finalized the file —
+        // stopping again would only throw and hang on a continuation that no
+        // delegate callback will ever resume.
+        if readState({ $0.nativeRecordingFinished }) { return }
+
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             _ = replaceRecordingFinishContinuation(continuation)
 
@@ -954,23 +1086,97 @@ class ScreenRecorder: NSObject, ObservableObject {
                 do {
                     try await stream.stopCapture()
                 } catch {
-                    self.resumePendingRecordingFinish(with: .failure(RecordingError.captureStreamFailed(error)))
+                    // stopCapture throws when the system already ended the
+                    // stream (menu bar indicator stop). The recording output
+                    // may still be finalizing the file — give its delegate a
+                    // moment before declaring the recording lost.
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    if self.readState({ $0.nativeRecordingFinished }) {
+                        self.resumePendingRecordingFinish(with: .success(()))
+                    } else {
+                        self.resumePendingRecordingFinish(with: .failure(RecordingError.captureStreamFailed(error)))
+                    }
                 }
             }
         }
     }
 
-    private func setupNativeRecordingOutput(on stream: SCStream) throws {
-        guard let outputURL = outputURL else {
-            throw RecordingError.invalidOutputURL
+    /// Segment file for the native path: "Name_screen_… part1.mp4" next to the
+    /// final output. A single-segment recording is renamed to outputURL at
+    /// stop; multi-segment recordings are stitched.
+    private func nativeSegmentURL(index: Int) -> URL? {
+        guard let outputURL else { return nil }
+        let base = outputURL.deletingPathExtension().lastPathComponent
+        return outputURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(base) part\(index).\(outputURL.pathExtension)")
+    }
+
+    /// Turns the native segment files into the final outputURL: a rename when
+    /// there was no pause, otherwise a lossless passthrough re-mux.
+    private func consolidateNativeSegmentsIfNeeded() async throws {
+        let (usesNative, segments) = readState { ($0.usesNativeRecordingOutput, $0.nativeSegmentURLs) }
+        guard usesNative, let outputURL, !segments.isEmpty else { return }
+
+        let existing = segments.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !existing.isEmpty else { throw RecordingError.invalidOutputURL }
+
+        if existing.count == 1 {
+            try? FileManager.default.removeItem(at: outputURL)
+            try FileManager.default.moveItem(at: existing[0], to: outputURL)
+            return
         }
 
+        let composition = AVMutableComposition()
+        var videoTrack: AVMutableCompositionTrack?
+        var audioTrack: AVMutableCompositionTrack?
+        var cursor = CMTime.zero
+
+        for segment in existing {
+            let asset = AVURLAsset(url: segment)
+            let duration = try await asset.load(.duration)
+
+            if let video = try await asset.loadTracks(withMediaType: .video).first {
+                if videoTrack == nil {
+                    videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+                }
+                try videoTrack?.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: video, at: cursor)
+            }
+            if let audio = try await asset.loadTracks(withMediaType: .audio).first {
+                if audioTrack == nil {
+                    audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+                }
+                try? audioTrack?.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: audio, at: cursor)
+            }
+            cursor = CMTimeAdd(cursor, duration)
+        }
+
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+            throw RecordingError.encodingFailed("Could not create the session that joins paused segments.")
+        }
+        try? FileManager.default.removeItem(at: outputURL)
+        export.outputURL = outputURL
+        export.outputFileType = outputURL.pathExtension.lowercased() == "mov" ? .mov : .mp4
+        await export.export()
+
+        guard export.status == .completed else {
+            // Leave the segment files on disk — the footage is still there
+            // even if the join failed.
+            throw RecordingError.encodingFailed(export.error?.localizedDescription ?? "Joining paused segments failed. The individual part files were kept.")
+        }
+
+        for segment in existing {
+            try? FileManager.default.removeItem(at: segment)
+        }
+    }
+
+    private func setupNativeRecordingOutput(on stream: SCStream, to recordingURL: URL) throws {
         guard #available(macOS 15.0, *) else {
             throw RecordingError.assetWriterCreationFailed("ScreenCaptureKit recording output is unavailable on this macOS version.")
         }
 
         let recordingConfiguration = SCRecordingOutputConfiguration()
-        recordingConfiguration.outputURL = outputURL
+        recordingConfiguration.outputURL = recordingURL
 
         if recordingConfiguration.availableVideoCodecTypes.contains(.h264) {
             recordingConfiguration.videoCodecType = .h264
@@ -994,12 +1200,31 @@ class ScreenRecorder: NSObject, ObservableObject {
 
 extension ScreenRecorder: SCStreamDelegate {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        // The user clicking Stop in the macOS menu bar screen-recording
+        // indicator surfaces here as an "error" — treat it as a normal stop
+        // request so the take gets saved instead of an error alert.
+        if Self.isUserStoppedCaptureError(error) {
+            resumePendingRecordingStart(with: .failure(RecordingError.captureStreamFailed(error)))
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .smoothySystemStopRequested, object: nil)
+            }
+            return
+        }
+
         resumePendingRecordingStart(with: .failure(RecordingError.captureStreamFailed(error)))
         resumePendingRecordingFinish(with: .failure(RecordingError.captureStreamFailed(error)))
 
         Task { @MainActor in
             self.failRecording(with: RecordingError.captureStreamFailed(error))
         }
+    }
+
+    private nonisolated static func isUserStoppedCaptureError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == SCStreamErrorDomain || nsError.domain == "com.apple.ScreenCaptureKit" else {
+            return false
+        }
+        return nsError.code == SCStreamError.Code.userStopped.rawValue
     }
 }
 
@@ -1029,17 +1254,20 @@ extension ScreenRecorder: SCStreamOutput {
         guard isCompleteVideoFrame(sampleBuffer) else { return }
 
         updateState { state in
-            guard state.isRecording else { return }
+            guard state.isRecording, !state.isPaused else { return }
 
             guard let writer = state.assetWriter, writer.status == .writing else {
                 return
             }
+
+            let sampleBuffer = SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset)
 
             if !state.hasStartedWriting {
                 let startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                 writer.startSession(atSourceTime: startTime)
                 state.hasStartedWriting = true
                 state.videoStartTime = startTime
+                state.captureAnchorTime = startTime
             }
 
             state.frameCount += 1
@@ -1070,7 +1298,9 @@ extension ScreenRecorder: SCStreamOutput {
 
     private nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         updateState { state in
-            guard state.isRecording, state.hasStartedWriting else { return }
+            guard state.isRecording, !state.isPaused, state.hasStartedWriting else { return }
+
+            let sampleBuffer = SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset)
 
             if let audioInput = state.audioInput, audioInput.isReadyForMoreMediaData {
                 if !audioInput.append(sampleBuffer) {
@@ -1087,6 +1317,11 @@ extension ScreenRecorder: SCStreamOutput {
 @available(macOS 15.0, *)
 extension ScreenRecorder: SCRecordingOutputDelegate {
     nonisolated func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
+        updateState { state in
+            if state.captureAnchorTime == nil {
+                state.captureAnchorTime = CMClockGetTime(CMClockGetHostTimeClock())
+            }
+        }
         resumePendingRecordingStart(with: .success(()))
     }
 
@@ -1101,6 +1336,7 @@ extension ScreenRecorder: SCRecordingOutputDelegate {
     }
 
     nonisolated func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        updateState { $0.nativeRecordingFinished = true }
         resumePendingRecordingFinish(with: .success(()))
     }
 }
@@ -1114,7 +1350,9 @@ extension ScreenRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
             guard let self else { return }
 
             self.updateState { state in
-                guard state.isRecording, state.hasStartedWriting else { return }
+                guard state.isRecording, !state.isPaused, state.hasStartedWriting else { return }
+
+                let sampleBuffer = SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset)
 
                 if let micAudioInput = state.micAudioInput, micAudioInput.isReadyForMoreMediaData {
                     if !micAudioInput.append(sampleBuffer) {

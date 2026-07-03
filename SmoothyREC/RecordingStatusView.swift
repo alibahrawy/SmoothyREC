@@ -69,20 +69,24 @@ struct RecordingStatusView: View {
             
             // Control buttons
             VStack(spacing: 8) {
-                Button(action: {
-                    togglePauseResume()
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                        Text(isPaused ? "Resume Recording" : "Pause Recording")
+                // Both recording paths honor pause now (sample gating on the
+                // writer path, segmented recording on the native path).
+                if appDelegate.recordingCoordinator.canPause {
+                    Button(action: {
+                        togglePauseResume()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                            Text(isPaused ? "Resume Recording" : "Pause Recording")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .buttonStyle(.bordered)
+                    .tint(isPaused ? .green : .orange)
+                    .controlSize(.large)
                 }
-                .buttonStyle(.bordered)
-                .tint(isPaused ? .green : .orange)
-                .controlSize(.large)
-                
+
                 Button(action: {
                     stopRecording()
                 }) {

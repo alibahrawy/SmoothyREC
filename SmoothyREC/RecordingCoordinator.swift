@@ -66,6 +66,11 @@ struct RecordingResult {
     let startTime: Date
     let endTime: Date
     let warnings: [RecordingWarning]
+    /// How many seconds the camera/mic stems lead the screen file. Camera and
+    /// mic timelines are anchored at the session sync clock, but the screen
+    /// stream takes a few hundred ms to deliver its first frame — compositing
+    /// without skipping this much of the camera/mic heads causes lip-sync drift.
+    let screenStartOffset: TimeInterval
 
     init(
         videoName: String,
@@ -75,7 +80,8 @@ struct RecordingResult {
         duration: TimeInterval,
         startTime: Date,
         endTime: Date,
-        warnings: [RecordingWarning] = []
+        warnings: [RecordingWarning] = [],
+        screenStartOffset: TimeInterval = 0
     ) {
         self.videoName = videoName
         self.screenRecordingURL = screenRecordingURL
@@ -85,6 +91,7 @@ struct RecordingResult {
         self.startTime = startTime
         self.endTime = endTime
         self.warnings = warnings
+        self.screenStartOffset = screenStartOffset
     }
 
     var allURLs: [URL] {
@@ -242,6 +249,13 @@ class RecordingCoordinator: NSObject, ObservableObject {
         state.isRecording
     }
 
+    /// Whether the active session supports pausing. The macOS 15+ native
+    /// screen-recording path can't pause (ScreenCaptureKit writes the file
+    /// itself), and pausing only the mic/camera would desync every track.
+    var canPause: Bool {
+        screenRecorder.supportsPause
+    }
+
     var formattedDuration: String {
         let hours = Int(currentDuration) / 3600
         let minutes = Int(currentDuration) / 60 % 60
@@ -310,11 +324,10 @@ class RecordingCoordinator: NSObject, ObservableObject {
 
     /// Starts a synchronized recording session with all configured recorders
     func start(configuration: RecordingSessionConfiguration) async throws {
+        // Throw for every non-startable state — a silent return here left the
+        // caller thinking a session started when nothing was recording.
         guard state.canStart else {
-            if case .recording = state {
-                throw CoordinatorError.alreadyRecording
-            }
-            return
+            throw CoordinatorError.alreadyRecording
         }
 
         state = .preparing
@@ -358,14 +371,19 @@ class RecordingCoordinator: NSObject, ObservableObject {
 
     /// Stops all recorders and waits for completion
     func stop() async throws -> RecordingResult {
-        // If we're paused, resume first so the recorders can stop cleanly and
-        // flush their files. The duration calculation below still works
-        // because resume() compensates the startTime for the paused window.
-        if case .paused = state {
-            await resume()
-        }
+        // Stopping straight from pause is fine: every recorder can finalize
+        // from its paused state, so nothing needs to briefly resume capture.
+        let startTime: Date
+        let pausedDurationOverride: TimeInterval?
 
-        guard case .recording(let startTime) = state else {
+        switch state {
+        case .recording(let recordingStart):
+            startTime = recordingStart
+            pausedDurationOverride = nil
+        case .paused(let recordingStart, let pausedDuration):
+            startTime = recordingStart
+            pausedDurationOverride = pausedDuration
+        default:
             throw CoordinatorError.notRecording
         }
 
@@ -377,7 +395,7 @@ class RecordingCoordinator: NSObject, ObservableObject {
         await stopAllRecordersAndCollectResults()
 
         let endTime = Date()
-        let duration = endTime.timeIntervalSince(startTime)
+        let duration = pausedDurationOverride ?? endTime.timeIntervalSince(startTime)
 
         isStopping = false
 
@@ -391,6 +409,16 @@ class RecordingCoordinator: NSObject, ObservableObject {
             }
         }
 
+        // Camera/mic stems are anchored at syncTime; the screen file starts at
+        // its capture anchor. The difference is the compositing offset.
+        var screenStartOffset: TimeInterval = 0
+        if let anchor = screenRecorder.captureAnchor, let syncTime {
+            let offset = CMTimeSubtract(anchor, syncTime).seconds
+            if offset.isFinite {
+                screenStartOffset = max(0, offset)
+            }
+        }
+
         // Create result
         let result = RecordingResult(
             videoName: currentConfiguration?.videoName ?? "Untitled",
@@ -400,7 +428,8 @@ class RecordingCoordinator: NSObject, ObservableObject {
             duration: duration,
             startTime: startTime,
             endTime: endTime,
-            warnings: recordingWarnings(from: recorderErrors)
+            warnings: recordingWarnings(from: recorderErrors),
+            screenStartOffset: screenStartOffset
         )
 
         state = .finished(result)
@@ -413,13 +442,18 @@ class RecordingCoordinator: NSObject, ObservableObject {
     func discard() async {
         stopDurationTimer()
 
-        // Stop all recorders
-        await stopAllRecorders()
-
-        // Discard individual recordings
+        // Each recorder's discardRecording() stops its own capture, finalizes,
+        // and deletes its file. Calling stopAllRecorders() first would clear
+        // every outputURL and leave all the files behind.
         await screenRecorder.discardRecording()
         await micRecorder.discardRecording()
         await cameraRecorder.discardRecording()
+
+        // Remove the per-session folder so a discarded take leaves nothing.
+        if let sessionDirectory = currentSessionDirectory {
+            try? FileManager.default.removeItem(at: sessionDirectory)
+            currentSessionDirectory = nil
+        }
 
         cleanup()
         state = .idle
@@ -434,13 +468,14 @@ class RecordingCoordinator: NSObject, ObservableObject {
 
     /// Pauses all active recorders
     func pause() async {
+        guard canPause else { return }
         guard case .recording(let startTime) = state else { return }
 
         // Calculate current duration for when we resume
         let currentDuration = Date().timeIntervalSince(startTime)
 
         // Pause all recorders
-        screenRecorder.pauseRecording()
+        await screenRecorder.pauseRecording()
         micRecorder.pauseRecording()
         cameraRecorder.pauseRecording()
 
@@ -459,8 +494,12 @@ class RecordingCoordinator: NSObject, ObservableObject {
         // This ensures the timer continues from where it left off
         let newStartTime = Date().addingTimeInterval(-pausedDuration)
 
-        // Resume all recorders
-        screenRecorder.resumeRecording()
+        // Resume all recorders. The native screen path recreates its capture
+        // stream here — if that fails, the recorder enters .failed and the
+        // state binding moves the whole session to failed; don't override it.
+        await screenRecorder.resumeRecording()
+        if case .failed = screenRecorder.state { return }
+
         micRecorder.resumeRecording()
         cameraRecorder.resumeRecording()
 
@@ -532,7 +571,7 @@ class RecordingCoordinator: NSObject, ObservableObject {
                         outputDirectory: sessionDirectory,
                         selectedMicrophone: microphone
                     )
-                    if let error = await self.startOptionalMicrophoneRecorder(with: micConfig) {
+                    if let error = await self.startOptionalMicrophoneRecorder(with: micConfig, syncTime: syncTime) {
                         await MainActor.run {
                             self.recorderErrors[.microphone] = error
                         }
@@ -566,9 +605,9 @@ class RecordingCoordinator: NSObject, ObservableObject {
         }
     }
 
-    private func startOptionalMicrophoneRecorder(with configuration: MicrophoneConfiguration) async -> Error? {
+    private func startOptionalMicrophoneRecorder(with configuration: MicrophoneConfiguration, syncTime: CMTime) async -> Error? {
         do {
-            try await micRecorder.startRecording(configuration: configuration)
+            try await micRecorder.startRecording(configuration: configuration, syncTime: syncTime)
             return nil
         } catch {
             return error

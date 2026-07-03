@@ -195,6 +195,9 @@ class CameraRecorder: NSObject, ObservableObject {
         var assetWriterInput: AVAssetWriterInput?
         var isRecording = false
         var hasStartedWriting = false
+        var isPaused = false
+        var pauseStartedAt: CMTime?
+        var pauseOffset: CMTime = .zero
     }
 
     nonisolated(unsafe) private var recorderState = RecorderState()
@@ -204,10 +207,13 @@ class CameraRecorder: NSObject, ObservableObject {
     private var outputURL: URL?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
+    private var pauseBeganAt: Date?
 
     private let sessionQueue = DispatchQueue(label: "com.smoothyrec.camerarecorder", qos: .userInitiated)
 
-    private var ciContext = CIContext()
+    // CIContext is expensive to create and thread-safe; the capture callback
+    // reuses this single instance instead of allocating one per frame.
+    private let ciContext = CIContext()
 
     private let writerQueue = DispatchQueue(label: "com.smoothyrec.camerarecorder.writer", qos: .userInteractive)
 
@@ -366,6 +372,9 @@ class CameraRecorder: NSObject, ObservableObject {
         }
 
         writer.shouldOptimizeForNetworkUse = false
+        // Write movie fragments so a crash or mid-recording failure leaves a
+        // playable file instead of a .mov with no moov atom.
+        writer.movieFragmentInterval = CMTime(seconds: 5, preferredTimescale: 600)
 
         let dims = configuration.quality.dimensions
         let videoSettings: [String: Any] = [
@@ -489,25 +498,38 @@ class CameraRecorder: NSObject, ObservableObject {
 
     // MARK: - Pause/Resume
 
+    /// Pause drops incoming frames; resume shifts later frames back by the
+    /// paused duration so the file plays as one continuous take. The writer and
+    /// its input are never touched — finishing the input mid-session would make
+    /// the next append (or second startSession) throw an NSException.
     func pauseRecording() {
-        let recording = readState { $0.isRecording }
-        guard recording else { return }
-        updateState { state in
-            state.assetWriterInput?.markAsFinished()
-            state.hasStartedWriting = false
+        let paused = updateState { state -> Bool in
+            guard state.isRecording, !state.isPaused else { return false }
+            state.isPaused = true
+            state.pauseStartedAt = CMClockGetTime(CMClockGetHostTimeClock())
+            return true
         }
+        guard paused else { return }
+        pauseBeganAt = Date()
+        stopDurationTimer()
     }
 
     func resumeRecording() {
-        let recording = readState { $0.isRecording }
-        guard recording else { return }
-        updateState { state in
-            if let assetWriter = state.assetWriter, assetWriter.status == .writing {
-                let resumeTime = CMClockGetTime(CMClockGetHostTimeClock())
-                assetWriter.startSession(atSourceTime: resumeTime)
-                state.hasStartedWriting = true
+        let resumed = updateState { state -> Bool in
+            guard state.isRecording, state.isPaused else { return false }
+            if let startedAt = state.pauseStartedAt {
+                state.pauseOffset = state.pauseOffset + (CMClockGetTime(CMClockGetHostTimeClock()) - startedAt)
             }
+            state.pauseStartedAt = nil
+            state.isPaused = false
+            return true
         }
+        guard resumed else { return }
+        if let began = pauseBeganAt {
+            recordingStartTime = recordingStartTime?.addingTimeInterval(Date().timeIntervalSince(began))
+        }
+        pauseBeganAt = nil
+        startDurationTimer()
     }
 
     // MARK: - Cleanup
@@ -549,9 +571,13 @@ class CameraRecorder: NSObject, ObservableObject {
             state.assetWriterInput = nil
             state.isRecording = false
             state.hasStartedWriting = false
+            state.isPaused = false
+            state.pauseStartedAt = nil
+            state.pauseOffset = .zero
         }
         currentConfiguration = nil
         recordingStartTime = nil
+        pauseBeganAt = nil
         currentFrame = nil
     }
 
@@ -587,8 +613,7 @@ extension CameraRecorder: AVCaptureVideoDataOutputSampleBufferDelegate {
     nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
             let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-            let ctx = CIContext()
-            if let cgImage = ctx.createCGImage(ciImage, from: ciImage.extent) {
+            if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
                 Task { @MainActor in
                     self.currentFrame = cgImage
                 }
@@ -600,10 +625,10 @@ extension CameraRecorder: AVCaptureVideoDataOutputSampleBufferDelegate {
             guard let self else { return }
 
             self.updateState { state in
-                guard state.isRecording else { return }
+                guard state.isRecording, !state.isPaused else { return }
 
                 if let input = state.assetWriterInput, input.isReadyForMoreMediaData {
-                    input.append(sampleBuffer)
+                    input.append(SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset))
                 }
             }
         }

@@ -6,6 +6,47 @@
 //
 
 import Foundation
+import CoreMedia
+
+enum SampleBufferRetimer {
+    /// Returns a copy of `sampleBuffer` with every timestamp shifted earlier by
+    /// `offset`, so samples captured after a pause splice seamlessly onto the
+    /// pre-pause timeline. Returns the original buffer when there is nothing to
+    /// shift or the copy fails (better one misplaced sample than a dropped one).
+    static func retimed(_ sampleBuffer: CMSampleBuffer, by offset: CMTime) -> CMSampleBuffer {
+        guard offset.isValid, offset > .zero else { return sampleBuffer }
+
+        var count: CMItemCount = 0
+        CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
+        guard count > 0 else { return sampleBuffer }
+
+        var timingInfo = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: count,
+            arrayToFill: &timingInfo,
+            entriesNeededOut: &count
+        ) == noErr else { return sampleBuffer }
+
+        for index in timingInfo.indices {
+            timingInfo[index].presentationTimeStamp = timingInfo[index].presentationTimeStamp - offset
+            if timingInfo[index].decodeTimeStamp.isValid {
+                timingInfo[index].decodeTimeStamp = timingInfo[index].decodeTimeStamp - offset
+            }
+        }
+
+        var adjusted: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault,
+            sampleBuffer: sampleBuffer,
+            sampleTimingEntryCount: count,
+            sampleTimingArray: &timingInfo,
+            sampleBufferOut: &adjusted
+        )
+        guard status == noErr, let adjusted else { return sampleBuffer }
+        return adjusted
+    }
+}
 
 enum RecordingComponent: String, CaseIterable, Identifiable {
     case screen

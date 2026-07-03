@@ -51,6 +51,7 @@ enum PiPCompositor {
         microphoneURL: URL?,
         outputURL: URL,
         corner: PiPCorner,
+        sourceStartOffset: TimeInterval = 0,
         cameraWidthFraction: CGFloat = 0.26,
         marginFraction: CGFloat = 0.025
     ) async throws -> URL {
@@ -68,8 +69,15 @@ enum PiPCompositor {
 
         let screenDuration = try await screenAsset.load(.duration)
         let cameraDuration = try await cameraAsset.load(.duration)
-        let overlayDuration = min(screenDuration, cameraDuration)
         let screenRange = CMTimeRange(start: .zero, duration: screenDuration)
+
+        // The camera/mic stems start at the session sync clock; the screen
+        // file starts a beat later (stream startup latency). Skip that lead-in
+        // on the camera/mic so all tracks depict the same instant at t=0.
+        let headOffset = CMTime(seconds: max(0, sourceStartOffset), preferredTimescale: 600)
+        let cameraStart = CMTimeMinimum(headOffset, cameraDuration)
+        let availableCamera = CMTimeSubtract(cameraDuration, cameraStart)
+        let overlayDuration = CMTimeMinimum(screenDuration, availableCamera)
 
         // Render canvas is the upright screen size.
         let screenNaturalSize = try await screenVideo.load(.naturalSize)
@@ -93,7 +101,7 @@ enum PiPCompositor {
             throw PiPCompositorError.exportSessionCreationFailed
         }
         try cameraComp.insertTimeRange(
-            CMTimeRange(start: .zero, duration: overlayDuration),
+            CMTimeRange(start: cameraStart, duration: overlayDuration),
             of: cameraVideo, at: .zero
         )
 
@@ -107,7 +115,9 @@ enum PiPCompositor {
             if let micAudio = try await micAsset.loadTracks(withMediaType: .audio).first,
                let micComp = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
                 let micDuration = try await micAsset.load(.duration)
-                try? micComp.insertTimeRange(CMTimeRange(start: .zero, duration: micDuration), of: micAudio, at: .zero)
+                let micStart = CMTimeMinimum(headOffset, micDuration)
+                let micRange = CMTimeRange(start: micStart, duration: CMTimeSubtract(micDuration, micStart))
+                try? micComp.insertTimeRange(micRange, of: micAudio, at: .zero)
             }
         }
 
