@@ -20,7 +20,11 @@ struct MicrophoneConfiguration {
     let selectedMicrophone: Microphone
     let sampleRate: Double = 48000.0
     let channels: Int = 1  // Mono for microphone
-    let bitrate: Int = 320000  // 320 kbps AAC
+    // 192 kbps is the practical ceiling for mono AAC-LC. Requesting more
+    // (this used to be 320000) makes the encoder reject EVERY buffer with
+    // "Cannot Encode Media" and the recording silently ends up as a 0-byte
+    // file.
+    let bitrate: Int = 192000
 }
 
 // MARK: - Mic Recorder State
@@ -129,6 +133,9 @@ class MicRecorder: NSObject, ObservableObject {
         var assetWriterInput: AVAssetWriterInput?
         var isRecording = false
         var hasStartedWriting = false
+        var isPaused = false
+        var pauseStartedAt: CMTime?
+        var pauseOffset: CMTime = .zero
     }
 
     nonisolated(unsafe) private var recorderState = RecorderState()
@@ -142,6 +149,7 @@ class MicRecorder: NSObject, ObservableObject {
     private var outputURL: URL?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
+    private var pauseBeganAt: Date?
 
     private let sessionQueue = DispatchQueue(label: "com.smoothyrec.micrecorder", qos: .userInitiated)
 
@@ -156,9 +164,6 @@ class MicRecorder: NSObject, ObservableObject {
         defer { stateLock.unlock() }
         return block(recorderState)
     }
-
-    // Audio level metering
-    private var audioLevelTimer: Timer?
 
     // MARK: - Computed Properties
 
@@ -191,8 +196,10 @@ class MicRecorder: NSObject, ObservableObject {
 
     // MARK: - Public Methods
 
-    /// Starts microphone recording with the given configuration
-    func startRecording(configuration: MicrophoneConfiguration) async throws {
+    /// Starts microphone recording with the given configuration. `syncTime`
+    /// anchors the file's timeline to the session-wide sync clock (the same
+    /// anchor the camera uses) so all stems line up in an editor.
+    func startRecording(configuration: MicrophoneConfiguration, syncTime: CMTime) async throws {
         guard state.canStart else {
             if case .recording = state {
                 throw MicRecorderError.alreadyRecording
@@ -213,7 +220,7 @@ class MicRecorder: NSObject, ObservableObject {
 
             try setupCaptureSession(configuration: configuration)
 
-            try await startCaptureSession()
+            try await startCaptureSession(syncTime: syncTime)
 
             recordingStartTime = Date()
             state = .recording(startTime: recordingStartTime!)
@@ -369,6 +376,19 @@ class MicRecorder: NSObject, ObservableObject {
 
         // Create output
         audioOutput = AVCaptureAudioDataOutput()
+        // Pin the capture format to interleaved 16-bit integer PCM. The macOS
+        // default is Float32, which the level meter and applyGain() would
+        // misread as Int16 — producing garbage levels and, with gain applied,
+        // corrupted audio.
+        audioOutput?.audioSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: configuration.sampleRate,
+            AVNumberOfChannelsKey: configuration.channels,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ]
         audioOutput?.setSampleBufferDelegate(self, queue: sessionQueue)
 
         guard let audioOutput = audioOutput else {
@@ -385,7 +405,7 @@ class MicRecorder: NSObject, ObservableObject {
         // Note: Manual gain control is not available on macOS
     }
 
-    private func startCaptureSession() async throws {
+    private func startCaptureSession(syncTime: CMTime) async throws {
         guard let captureSession = captureSession else {
             throw MicRecorderError.captureSessionSetupFailed
         }
@@ -394,6 +414,12 @@ class MicRecorder: NSObject, ObservableObject {
         guard let writer = writer, writer.startWriting() else {
             throw MicRecorderError.assetWriterStartFailed
         }
+
+        // Anchor the timeline at the shared sync clock (not the first buffer)
+        // so the mic stem aligns with the camera and the PiP compositor can
+        // compensate for the screen recorder's startup latency.
+        writer.startSession(atSourceTime: syncTime)
+        updateState { $0.hasStartedWriting = true }
 
         await withCheckedContinuation { continuation in
             nonisolated(unsafe) let captureSession = captureSession
@@ -459,33 +485,50 @@ class MicRecorder: NSObject, ObservableObject {
             state.assetWriterInput = nil
             state.isRecording = false
             state.hasStartedWriting = false
+            state.isPaused = false
+            state.pauseStartedAt = nil
+            state.pauseOffset = .zero
         }
         currentConfiguration = nil
         recordingStartTime = nil
+        pauseBeganAt = nil
         audioLevel = -160.0
     }
 
     // MARK: - Pause/Resume
 
+    /// Pause drops incoming buffers; resume shifts later buffers back by the
+    /// paused duration so the file plays as one continuous take. The writer and
+    /// its input are never touched — finishing the input mid-session would make
+    /// the next append (or second startSession) throw an NSException.
     func pauseRecording() {
-        let recording = readState { $0.isRecording }
-        guard recording else { return }
-        updateState { state in
-            state.assetWriterInput?.markAsFinished()
-            state.hasStartedWriting = false
+        let paused = updateState { state -> Bool in
+            guard state.isRecording, !state.isPaused else { return false }
+            state.isPaused = true
+            state.pauseStartedAt = CMClockGetTime(CMClockGetHostTimeClock())
+            return true
         }
+        guard paused else { return }
+        pauseBeganAt = Date()
+        stopDurationTimer()
     }
 
     func resumeRecording() {
-        let recording = readState { $0.isRecording }
-        guard recording else { return }
-        updateState { state in
-            if let assetWriter = state.assetWriter, assetWriter.status == .writing {
-                let resumeTime = CMClockGetTime(CMClockGetHostTimeClock())
-                assetWriter.startSession(atSourceTime: resumeTime)
-                state.hasStartedWriting = true
+        let resumed = updateState { state -> Bool in
+            guard state.isRecording, state.isPaused else { return false }
+            if let startedAt = state.pauseStartedAt {
+                state.pauseOffset = state.pauseOffset + (CMClockGetTime(CMClockGetHostTimeClock()) - startedAt)
             }
+            state.pauseStartedAt = nil
+            state.isPaused = false
+            return true
         }
+        guard resumed else { return }
+        if let began = pauseBeganAt {
+            recordingStartTime = recordingStartTime?.addingTimeInterval(Date().timeIntervalSince(began))
+        }
+        pauseBeganAt = nil
+        startDurationTimer()
     }
 
     // MARK: - Helper Methods
@@ -513,14 +556,10 @@ class MicRecorder: NSObject, ObservableObject {
     }
 
     private func startAudioLevelMetering() {
-        audioLevelTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            // Audio level is updated in captureOutput callback
-        }
+        // Levels update straight from the capture callback; nothing to poll.
     }
 
     private func stopAudioLevelMetering() {
-        audioLevelTimer?.invalidate()
-        audioLevelTimer = nil
         audioLevel = -160.0
     }
 
@@ -573,17 +612,22 @@ extension MicRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
             guard let self else { return }
 
             self.updateState { state in
-                guard state.isRecording else { return }
+                guard state.isRecording, !state.isPaused, state.hasStartedWriting else { return }
 
-                if !state.hasStartedWriting {
-                    let startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                    state.assetWriter?.startSession(atSourceTime: startTime)
-                    state.hasStartedWriting = true
-                }
+                let buffer = SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset)
 
                 if let input = state.assetWriterInput, input.isReadyForMoreMediaData {
-                    self.applyGain(self.captureGain, to: sampleBuffer)
-                    input.append(sampleBuffer)
+                    self.applyGain(self.captureGain, to: buffer)
+                    if !input.append(buffer) {
+                        // Never fail silently: this is exactly how 0-byte
+                        // recordings shipped for months.
+                        let message = state.assetWriter?.error?.localizedDescription ?? "Failed to append microphone audio."
+                        micLogger.error("Mic append failed: \(message)")
+                        state.isRecording = false
+                        Task { @MainActor in
+                            self.state = .failed(MicRecorderError.encodingFailed(message))
+                        }
+                    }
                 }
             }
         }

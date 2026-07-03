@@ -7,6 +7,7 @@
 
 import Foundation
 @preconcurrency import AVFoundation
+import CoreAudio
 import SwiftUI
 
 /// Manages microphone monitoring with volume meter and optional audio passthrough (hear yourself)
@@ -229,6 +230,13 @@ class MicMonitorManager: NSObject, ObservableObject {
         // Get the input node (microphone)
         let inputNode = engine.inputNode
 
+        // AVAudioEngine's input node defaults to the SYSTEM default microphone.
+        // Bind it to the mic the user actually selected, or "Hear Microphone"
+        // plays back the wrong device.
+        if let uid = currentMicID {
+            bindInput(of: inputNode, toDeviceWithUID: uid)
+        }
+
         // Get the output format
         let outputNode = engine.outputNode
         let outputFormat = outputNode.outputFormat(forBus: 0)
@@ -258,6 +266,45 @@ class MicMonitorManager: NSObject, ObservableObject {
 
         self.audioEngine = engine
         self.audioPlayer = player
+    }
+
+    /// Points an AVAudioEngine input node at a specific CoreAudio device.
+    /// AVCaptureDevice.uniqueID for microphones is the CoreAudio device UID,
+    /// so it translates directly. Best-effort: on failure the engine keeps the
+    /// system default input rather than breaking passthrough entirely.
+    private func bindInput(of inputNode: AVAudioInputNode, toDeviceWithUID uid: String) {
+        var deviceID = AudioDeviceID(kAudioObjectUnknown)
+        var translationAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var cfUID = uid as CFString
+
+        let translateStatus = withUnsafeMutablePointer(to: &cfUID) { uidPointer in
+            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            return AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &translationAddress,
+                UInt32(MemoryLayout<CFString>.size),
+                uidPointer,
+                &size,
+                &deviceID
+            )
+        }
+
+        guard translateStatus == noErr, deviceID != kAudioObjectUnknown else { return }
+        guard let audioUnit = inputNode.audioUnit else { return }
+
+        var mutableDeviceID = deviceID
+        AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
     }
 
     private func scheduleBufferForPlayback(_ buffer: AVAudioPCMBuffer, format: AVAudioFormat) {
@@ -433,9 +480,10 @@ class MicMonitorManager: NSObject, ObservableObject {
 
         audioLevel = smoothedLevel
 
-        // Calculate dB for display
-        let db = (smoothedLevel * 66) - 72
-        dbLevel = max(-72, min(-6, db))
+        // Invert the meter mapping (0…1 ↔ -60…0 dB) for the readout so the
+        // number matches what the bar shows.
+        let db = (smoothedLevel * 60) - 60
+        dbLevel = max(-60, min(0, db))
     }
 
     nonisolated private static func normalizedMeterLevel(sum: Double, peak: Double, sampleCount: Int) -> Float {
@@ -444,7 +492,9 @@ class MicMonitorManager: NSObject, ObservableObject {
         let rms = sqrt(sum / Double(sampleCount))
         let responsiveAmplitude = max(rms, peak * 0.55)
         let db = 20 * log10(max(responsiveAmplitude, 0.000001))
-        let normalized = ((db + 78.0) / 66.0) * 1.65
+        // Map -60 dB…0 dB linearly onto 0…1 with no artificial boost, so the
+        // meter only approaches full scale when the signal approaches clipping.
+        let normalized = (db + 60.0) / 60.0
 
         return Float(max(0.0, min(1.0, normalized)))
     }
@@ -597,7 +647,7 @@ struct VolumeMeterView: View {
     }
 
     private var formattedDB: String {
-        if dbLevel <= -71 {
+        if dbLevel <= -59 {
             return "— dB"
         } else {
             return String(format: "%.1f dB", dbLevel)
