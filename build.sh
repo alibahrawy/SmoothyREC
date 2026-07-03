@@ -8,7 +8,7 @@ set -e
 # Configuration
 APP_NAME="SmoothyREC"
 BUNDLE_ID="com.smoothyrec.SmoothyREC"
-VERSION="1.0.0"
+VERSION="1.1.0"
 BUILD_DIR="build"
 ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
