@@ -119,6 +119,13 @@ struct OnboardingView: View {
         PermissionType.allCases.allSatisfy { type in
             let state = permissionStates[type] ?? .notDetermined
             let interacted = hasInteracted[type] ?? false
+            // Screen recording has no queryable "denied" state
+            // (CGPreflightScreenCaptureAccess is a plain boolean), so having
+            // reviewed it counts as resolved — otherwise a user who declines
+            // could never enable Continue.
+            if type == .screenRecording {
+                return interacted
+            }
             return interacted && (state == .authorized || state == .denied)
         }
     }
@@ -189,7 +196,7 @@ struct OnboardingView: View {
         .alert("Already Granted?", isPresented: $showingAlreadyGrantedConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Yes, I've Enabled It", role: .none) {
-                markScreenRecordingAsGranted()
+                confirmAlreadyGranted()
             }
             Button("Open System Settings", role: .none) {
                 openScreenRecordingSettings()
@@ -441,6 +448,18 @@ struct OnboardingView: View {
 
         Task {
             await pollScreenRecordingPermission()
+        }
+    }
+
+    /// "I Already Granted This" — trust but verify. Marking granted without
+    /// checking would paint the UI green while every capture fails with
+    /// permissionDenied.
+    private func confirmAlreadyGranted() {
+        if CGPreflightScreenCaptureAccess() {
+            markScreenRecordingAsGranted()
+        } else {
+            hasInteracted[.screenRecording] = true
+            permissionStates[.screenRecording] = .denied
         }
     }
 

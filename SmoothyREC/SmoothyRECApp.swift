@@ -14,6 +14,9 @@ private let logger = Logger(subsystem: "com.smoothyrec.SmoothyREC", category: "A
 
 extension Notification.Name {
     static let smoothyHotKeyStart = Notification.Name("smoothyHotKeyStart")
+    /// Posted when the user stops capture from the macOS menu bar
+    /// screen-recording indicator — treated as a normal Stop, not an error.
+    static let smoothySystemStopRequested = Notification.Name("smoothySystemStopRequested")
 }
 
 enum AppError: LocalizedError {
@@ -81,7 +84,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        // Regular app: visible in the Dock and ⌘Tab so it clearly reads as
+        // "open" while its menu bar item is present. Closing the window keeps
+        // it running; quitting removes the menu bar item with it.
+        NSApp.setActivationPolicy(.regular)
 
         setupNotifications()
         setupMainMenuBar()
@@ -99,6 +105,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
             hasShownInitialPermissionPanel = true
             showOnboardingWindow()
         }
+
+        // Once-a-day background update check; silent unless a newer release
+        // exists on GitHub.
+        let lastCheck = UserDefaults.standard.double(forKey: "lastUpdateCheck")
+        if Date().timeIntervalSince1970 - lastCheck > 86_400 {
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
+            Task { await self.checkForUpdates(interactive: false) }
+        }
+    }
+
+    /// Clicking the Dock icon with no windows open reopens the recorder.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            showMainWindow()
+        }
+        return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -106,6 +128,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
 
         Task { @MainActor in
             await self.handleReturnFromScreenPermissionSettings()
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let state = recordingCoordinator.state
+        guard state.isRecording || state.isPaused else {
+            return .terminateNow
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "A recording is in progress"
+        alert.informativeText = "Quitting now interrupts the recording. Save what's been captured so far, or discard it?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save & Quit")
+        alert.addButton(withTitle: "Discard & Quit")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            Task { @MainActor in
+                _ = try? await self.recordingCoordinator.stop()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        case .alertSecondButtonReturn:
+            Task { @MainActor in
+                await self.recordingCoordinator.discard()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        default:
+            return .terminateCancel
         }
     }
 
@@ -125,6 +179,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
                 self?.recordingDuration = duration
                 self?.updateMainStatusButton()
                 self?.updateRecordingStatusButton()
+            }
+            .store(in: &cancellables)
+
+        // Stop requested from the macOS menu bar screen-recording indicator:
+        // finish and save exactly like pressing Stop in the app.
+        NotificationCenter.default.publisher(for: .smoothySystemStopRequested)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.isRecording else { return }
+                self.stopRecordingFromStatusBar()
             }
             .store(in: &cancellables)
     }
@@ -273,7 +337,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
     }
 
     private func hotKeyTogglePause() {
-        guard isRecording else { return }
+        guard isRecording, recordingCoordinator.canPause else { return }
         togglePauseResume()
     }
 
@@ -309,6 +373,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
         let appURL = Bundle.main.bundleURL
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
+        // Without this, openApplication just activates the already-running
+        // instance and the terminate below turns "relaunch" into plain "quit".
+        configuration.createsNewApplicationInstance = true
 
         NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
             if let error {

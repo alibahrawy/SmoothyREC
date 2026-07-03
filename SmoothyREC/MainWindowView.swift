@@ -34,6 +34,7 @@ struct MainWindowView: View {
     @State private var isRecording = false
     @State private var isStarting = false
     @State private var countdownRemaining: Int?
+    @State private var countdownCancelled = false
 
     enum RecordMode: String, CaseIterable, Identifiable {
         case fullScreen = "Full Screen"
@@ -108,13 +109,39 @@ struct MainWindowView: View {
             // will start it later.
             startLiveScreenPreview()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            // The view lives for the life of the app (the window is reused,
+            // not rebuilt), so window reopen — not onAppear — is where devices
+            // and previews get refreshed.
+            guard (note.object as? NSWindow) === appDelegate.mainWindow else { return }
             if deviceManager.displays.isEmpty {
                 Task { await refreshDevices() }
             }
+            startLiveScreenPreview()
+            if selectedCamera != nil, !cameraPreviewManager.isRunning {
+                Task { await cameraPreviewManager.startPreview(camera: selectedCamera) }
+            }
+            if selectedMicrophone != nil, !micMonitorManager.isMonitoring {
+                Task { await micMonitorManager.startMonitoring(microphone: selectedMicrophone) }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+            // Closing the window must stop the live capture pipelines — the
+            // persistent view's onDisappear never fires on a mere orderOut.
+            guard (note.object as? NSWindow) === appDelegate.mainWindow else { return }
+            Task { await screenPreviewManager.stopLive() }
+            Task {
+                await cameraPreviewManager.stopPreview()
+                await micMonitorManager.stopMonitoring()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .smoothyHotKeyStart)) { _ in
-            if appDelegate.consumePendingHotKeyStart() {
+            if countdownRemaining != nil {
+                // Hotkey during the countdown aborts it instead of stacking a
+                // second start.
+                _ = appDelegate.consumePendingHotKeyStart()
+                cancelCountdown()
+            } else if appDelegate.consumePendingHotKeyStart() {
                 startRecording()
             }
         }
@@ -152,7 +179,9 @@ struct MainWindowView: View {
         }
     }
 
-    @AppStorage("hidePermissionBanner") private var hidePermissionBanner: Bool = false
+    // Session-only dismissal: persisting it meant the banner never came back,
+    // even after the user revoked a permission in System Settings.
+    @State private var hidePermissionBanner: Bool = false
 
     // MARK: - Permission Hint Banner
     @ViewBuilder
@@ -685,27 +714,48 @@ struct MainWindowView: View {
 
             Spacer()
 
-            Button(action: {
-                startRecording()
-            }) {
-                HStack(spacing: 8) {
-                    if isStarting {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "record.circle.fill")
+            if let countdownRemaining {
+                // During the countdown the button turns into an escape hatch —
+                // Esc works too via the cancel keyboard shortcut.
+                Button(action: {
+                    cancelCountdown()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 18))
+                        Text("Cancel (\(countdownRemaining))")
+                            .font(.system(size: 14, weight: .semibold))
                     }
-                    Text(startButtonTitle)
-                        .font(.system(size: 14, weight: .semibold))
+                    .frame(minWidth: 160)
+                    .padding(.horizontal, 8)
                 }
-                .frame(minWidth: 160)
-                .padding(.horizontal, 8)
+                .buttonStyle(.borderedProminent)
+                .tint(.gray)
+                .controlSize(.large)
+                .keyboardShortcut(.cancelAction)
+            } else {
+                Button(action: {
+                    startRecording()
+                }) {
+                    HStack(spacing: 8) {
+                        if isStarting {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "record.circle.fill")
+                                .font(.system(size: 18))
+                        }
+                        Text(startButtonTitle)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .frame(minWidth: 160)
+                    .padding(.horizontal, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
+                .disabled(!canStartRecording || isStarting || deviceManager.isLoading)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .controlSize(.large)
-            .disabled(!canStartRecording || isStarting || deviceManager.isLoading)
         }
         .padding(20)
         .background(Color(.controlBackgroundColor))
@@ -729,17 +779,26 @@ struct MainWindowView: View {
     }
 
     // MARK: - Actions
+    private func cancelCountdown() {
+        countdownCancelled = true
+    }
+
     private func startRecording() {
         guard !isStarting else { return }
 
         Task {
             isStarting = true
+            countdownCancelled = false
             defer {
                 isStarting = false
                 countdownRemaining = nil
             }
 
-            await performCountdownIfNeeded()
+            let countdownCompleted = await performCountdownIfNeeded()
+            guard countdownCompleted else {
+                appDelegate.countdownOverlay.hide()
+                return
+            }
 
             // Stop preview and monitoring before recording starts
             // (The actual recorders will take over the camera/mic)
@@ -790,27 +849,39 @@ struct MainWindowView: View {
         }
     }
 
-    private func performCountdownIfNeeded() async {
+    /// Returns false when the user cancelled during the countdown.
+    private func performCountdownIfNeeded() async -> Bool {
         guard settings.countdownEnabled else {
             countdownRemaining = nil
-            return
+            return true
         }
 
         let seconds = max(0, settings.countdownSeconds)
         guard seconds > 0 else {
             countdownRemaining = nil
-            return
+            return true
         }
 
         appDelegate.countdownOverlay.show(startingAt: seconds)
         for remaining in stride(from: seconds, through: 1, by: -1) {
             countdownRemaining = remaining
             appDelegate.countdownOverlay.update(remaining)
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            // Tick in tenths so a cancel takes effect promptly, not at the
+            // next whole second.
+            for _ in 0..<10 {
+                if countdownCancelled { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            if countdownCancelled {
+                appDelegate.countdownOverlay.hide()
+                countdownRemaining = nil
+                return false
+            }
         }
         appDelegate.countdownOverlay.hide()
 
         countdownRemaining = nil
+        return true
     }
 
     private func refreshDevices(includeScreenCaptureContent: Bool = false) async {

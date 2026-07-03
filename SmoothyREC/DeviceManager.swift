@@ -591,7 +591,9 @@ class DeviceManager: ObservableObject {
     }
 
     private func getDisplayName(for displayID: CGDirectDisplayID) -> String {
-        if displayID == CGMainDisplayID() {
+        // "Built-in" is a hardware property, not "whichever display is main" —
+        // in clamshell mode an external monitor is the main display.
+        if CGDisplayIsBuiltin(displayID) != 0 {
             return "Built-in Display"
         }
 

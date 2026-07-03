@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Menu Bar App (No Dock Icon) -->
-    <key>LSUIElement</key>
-    <true/>
-    
     <!-- Bundle Information -->
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
@@ -22,9 +18,9 @@
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.1.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     
     <!-- Minimum System Version -->
     <key>LSMinimumSystemVersion</key>
@@ -37,15 +33,5 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>SmoothyREC needs access to your microphone to record audio alongside your screen.</string>
     
-    <key>NSScreenCaptureUsageDescription</key>
-    <string>SmoothyREC needs screen recording permission to capture your screen.</string>
-    
-    <!-- User Notifications -->
-    <key>NSUserNotificationAlertStyle</key>
-    <string>alert</string>
-    
-    <!-- Background Modes -->
-    <key>UIBackgroundModes</key>
-    <array/>
 </dict>
 </plist>

@@ -21,7 +21,9 @@ extension AppDelegate {
     func showRecordingStartedNotification() {
         let notification = UNMutableNotificationContent()
         notification.title = "Recording Started"
-        notification.body = "Click the timer in your menu bar to pause or stop."
+        notification.body = recordingCoordinator.canPause
+            ? "Click the timer in your menu bar to pause or stop."
+            : "Click the timer in your menu bar to stop the recording."
         notification.sound = nil
 
         let request = UNNotificationRequest(
