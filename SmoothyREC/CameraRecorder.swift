@@ -208,6 +208,8 @@ class CameraRecorder: NSObject, ObservableObject {
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
     private var pauseBeganAt: Date?
+    private var failureFinalization: Task<URL?, Never>?
+    private var captureObservers: [NSObjectProtocol] = []
 
     private let sessionQueue = DispatchQueue(label: "com.smoothyrec.camerarecorder", qos: .userInitiated)
 
@@ -254,11 +256,10 @@ class CameraRecorder: NSObject, ObservableObject {
 
     /// Starts camera recording with the given configuration and sync time
     func startRecording(configuration: CameraConfiguration, syncTime: CMTime) async throws {
+        if let failureFinalization { _ = await failureFinalization.value }
+        failureFinalization = nil
         guard state.canStart else {
-            if case .recording = state {
-                throw CameraRecorderError.alreadyRecording
-            }
-            return
+            throw CameraRecorderError.alreadyRecording
         }
 
         state = .preparing
@@ -280,13 +281,20 @@ class CameraRecorder: NSObject, ObservableObject {
             startDurationTimer()
 
         } catch {
-            state = .failed(error)
+            await stopCaptureSession()
+            try? await finishWriting()
             await cleanup()
+            state = .failed(error)
             throw error
         }
     }
 
     func stopRecording() async throws -> URL {
+        if let failureFinalization {
+            if let url = await failureFinalization.value { return url }
+            if case .failed(let error) = state { throw error }
+            throw CameraRecorderError.notRecording
+        }
         let wasRecording = readState { $0.isRecording }
         guard wasRecording else {
             throw CameraRecorderError.notRecording
@@ -297,7 +305,13 @@ class CameraRecorder: NSObject, ObservableObject {
 
         await stopCaptureSession()
 
-        try await finishWriting()
+        do {
+            try await finishWriting()
+        } catch {
+            await cleanup()
+            state = .failed(error)
+            throw error
+        }
 
         guard let outputURL = outputURL else {
             throw CameraRecorderError.invalidOutputURL
@@ -315,6 +329,10 @@ class CameraRecorder: NSObject, ObservableObject {
 
     /// Discards the current recording without saving
     func discardRecording() async {
+        if let failureFinalization {
+            if let url = await failureFinalization.value { try? FileManager.default.removeItem(at: url) }
+            self.failureFinalization = nil
+        }
         stopDurationTimer()
         await stopCaptureSession()
 
@@ -414,6 +432,14 @@ class CameraRecorder: NSObject, ObservableObject {
         // Create capture session
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .high
+        if let captureSession {
+            for name in [AVCaptureSession.runtimeErrorNotification, AVCaptureSession.wasInterruptedNotification] {
+                captureObservers.append(NotificationCenter.default.addObserver(forName: name, object: captureSession, queue: nil) { [weak self] note in
+                    let message = (note.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription ?? "Camera capture was interrupted."
+                    Task { @MainActor in self?.failRecording(with: CameraRecorderError.encodingFailed(message)) }
+                })
+            }
+        }
 
         // Create input
         do {
@@ -540,9 +566,17 @@ class CameraRecorder: NSObject, ObservableObject {
                 let writer = self.readState { $0.assetWriter }
                 let hasStarted = self.readState { $0.hasStartedWriting }
 
+                if let writer, writer.status == .failed {
+                    continuation.resume(throwing: CameraRecorderError.encodingFailed(writer.error?.localizedDescription ?? "Camera encoding failed."))
+                    return
+                }
+                guard let writer, writer.status == .writing else {
+                    continuation.resume()
+                    return
+                }
                 self.updateState { $0.assetWriterInput?.markAsFinished() }
 
-                if let writer = writer, writer.status == .writing, hasStarted {
+                if hasStarted {
                     nonisolated(unsafe) let writer = writer
                     writer.finishWriting {
                         if writer.status == .failed {
@@ -553,9 +587,7 @@ class CameraRecorder: NSObject, ObservableObject {
                         }
                     }
                 } else {
-                    if let writer = writer, writer.status == .writing {
-                        writer.cancelWriting()
-                    }
+                    writer.cancelWriting()
                     continuation.resume()
                 }
             }
@@ -563,6 +595,8 @@ class CameraRecorder: NSObject, ObservableObject {
     }
 
     private func cleanup() async {
+        captureObservers.forEach(NotificationCenter.default.removeObserver)
+        captureObservers.removeAll()
         captureSession = nil
         videoInput = nil
         videoOutput = nil
@@ -578,7 +612,23 @@ class CameraRecorder: NSObject, ObservableObject {
         currentConfiguration = nil
         recordingStartTime = nil
         pauseBeganAt = nil
+        outputURL = nil
         currentFrame = nil
+    }
+
+    private func failRecording(with error: Error) {
+        guard state.isRecording || state == .preparing else { return }
+        stopDurationTimer()
+        updateState { $0.isRecording = false }
+        state = .failed(error)
+        let url = outputURL
+        failureFinalization = Task {
+            await self.stopCaptureSession()
+            try? await self.finishWriting()
+            let recovered = await RecordingMediaFile.recoveredURL(url, mediaType: .video)
+            await self.cleanup()
+            return recovered
+        }
     }
 
     // MARK: - Helper Methods
@@ -628,7 +678,11 @@ extension CameraRecorder: AVCaptureVideoDataOutputSampleBufferDelegate {
                 guard state.isRecording, !state.isPaused else { return }
 
                 if let input = state.assetWriterInput, input.isReadyForMoreMediaData {
-                    input.append(SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset))
+                    if !input.append(SampleBufferRetimer.retimed(sampleBuffer, by: state.pauseOffset)) {
+                        let message = state.assetWriter?.error?.localizedDescription ?? "Failed to append camera video."
+                        state.isRecording = false
+                        Task { @MainActor in self.failRecording(with: CameraRecorderError.encodingFailed(message)) }
+                    }
                 }
             }
         }

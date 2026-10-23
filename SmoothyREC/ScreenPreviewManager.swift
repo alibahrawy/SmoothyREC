@@ -12,6 +12,11 @@ import CoreGraphics
 import CoreVideo
 import CoreImage
 
+protocol ScreenPreviewStreaming: AnyObject {
+    func start(target: ScreenPreviewManager.Target, onFrame: @escaping (CGImage) -> Void) async throws
+    func stop() async
+}
+
 @MainActor
 final class ScreenPreviewManager: ObservableObject {
     enum Target: Hashable {
@@ -41,8 +46,27 @@ final class ScreenPreviewManager: ObservableObject {
     @Published private(set) var isLive = false
 
     private var requestID = 0
-    private var liveStream: LiveScreenPreviewStream?
+    private var liveStream: (any ScreenPreviewStreaming)?
     private var liveTarget: Target?
+    private var liveRequestID = 0
+    private(set) var isEnabled = false
+    private let makeLiveStream: () -> any ScreenPreviewStreaming
+    private let snapshotProvider: ((Target) async throws -> CGImage)?
+
+    convenience init() {
+        self.init(makeLiveStream: { LiveScreenPreviewStream() })
+    }
+
+    init(makeLiveStream: @escaping () -> any ScreenPreviewStreaming,
+         snapshotProvider: ((Target) async throws -> CGImage)? = nil) {
+        self.makeLiveStream = makeLiveStream
+        self.snapshotProvider = snapshotProvider
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        if !enabled { clear() }
+    }
 
     var hasPreview: Bool {
         image != nil
@@ -50,7 +74,8 @@ final class ScreenPreviewManager: ObservableObject {
 
     func clear() {
         requestID += 1
-        Task { await stopLive() }
+        let previous = detachLiveStream()
+        Task { await previous?.stop() }
         image = nil
         isLoading = false
         errorMessage = nil
@@ -63,8 +88,11 @@ final class ScreenPreviewManager: ObservableObject {
     /// Call `stopLive()` when the preview view disappears or when recording
     /// begins — the recorder needs the screen capture pipeline for itself.
     func startLive(for target: Target?) async {
-        // Tear down any existing live stream first.
-        await stopLive()
+        guard isEnabled else { return }
+        let previous = detachLiveStream()
+        let currentRequestID = liveRequestID
+        await previous?.stop()
+        guard isEnabled, currentRequestID == liveRequestID, !Task.isCancelled else { return }
 
         guard let target else {
             image = nil
@@ -75,16 +103,20 @@ final class ScreenPreviewManager: ObservableObject {
 
         // Show a snapshot immediately so the UI isn't blank during stream startup.
         await capturePreview(for: target)
+        guard isEnabled, currentRequestID == liveRequestID, !Task.isCancelled else { return }
 
+        let stream = makeLiveStream()
+        liveStream = stream
+        liveTarget = target
         do {
-            let stream = LiveScreenPreviewStream()
             try await stream.start(target: target) { [weak self] cgImage in
                 guard let self else { return }
                 Task { @MainActor in
                     // Discard frames that arrive after we've moved on to another
                     // source — prevents the preview from briefly flashing the
                     // previous display when the user switches.
-                    guard self.liveTarget == target else { return }
+                    guard self.isEnabled, self.liveRequestID == currentRequestID,
+                          self.liveTarget == target else { return }
                     self.image = NSImage(
                         cgImage: cgImage,
                         size: NSSize(width: cgImage.width, height: cgImage.height)
@@ -94,9 +126,15 @@ final class ScreenPreviewManager: ObservableObject {
                     self.isLive = true
                 }
             }
-            liveStream = stream
-            liveTarget = target
+            guard isEnabled, currentRequestID == liveRequestID, !Task.isCancelled else {
+                await stream.stop()
+                return
+            }
         } catch {
+            await stream.stop()
+            guard isEnabled, currentRequestID == liveRequestID else { return }
+            liveStream = nil
+            liveTarget = nil
             // Fall back to the snapshot path — if SCStream won't start (most
             // commonly: permission missing), the snapshot already shown above
             // is the best we can do, and capturePreview surfaced any error.
@@ -106,15 +144,22 @@ final class ScreenPreviewManager: ObservableObject {
     }
 
     func stopLive() async {
+        requestID += 1
+        let stream = detachLiveStream()
+        await stream?.stop()
+    }
+
+    private func detachLiveStream() -> (any ScreenPreviewStreaming)? {
+        liveRequestID += 1
         isLive = false
         liveTarget = nil
-        if let stream = liveStream {
-            liveStream = nil
-            await stream.stop()
-        }
+        let stream = liveStream
+        liveStream = nil
+        return stream
     }
 
     func capturePreview(for target: Target?) async {
+        guard isEnabled else { return }
         requestID += 1
         let currentRequestID = requestID
 
@@ -135,7 +180,12 @@ final class ScreenPreviewManager: ObservableObject {
         }
 
         do {
-            let cgImage = try await captureSnapshot(for: target)
+            let cgImage: CGImage
+            if let snapshotProvider {
+                cgImage = try await snapshotProvider(target)
+            } else {
+                cgImage = try await captureSnapshot(for: target)
+            }
             guard currentRequestID == requestID else { return }
 
             image = NSImage(
@@ -545,7 +595,7 @@ extension ScreenPreviewManager {
 
 /// A long-running SCStream tuned for thumbnail-quality live preview.
 /// Frames flow through a single callback at ~24fps until `stop()` is called.
-private final class LiveScreenPreviewStream: NSObject, SCStreamOutput, SCStreamDelegate {
+private final class LiveScreenPreviewStream: NSObject, ScreenPreviewStreaming, SCStreamOutput, SCStreamDelegate {
     private let queue = DispatchQueue(label: "com.smoothyrec.screenpreview.live", qos: .userInitiated)
     private let context = CIContext()
     private let lock = NSLock()
@@ -621,21 +671,22 @@ private final class LiveScreenPreviewStream: NSObject, SCStreamOutput, SCStreamD
 
         let scStream = SCStream(filter: filter, configuration: configuration, delegate: self)
 
-        lock.lock()
-        self.onFrame = onFrame
-        self.stream = scStream
-        lock.unlock()
+        lock.withLock {
+            self.onFrame = onFrame
+            self.stream = scStream
+        }
 
         try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await scStream.startCapture()
     }
 
     func stop() async {
-        lock.lock()
-        let scStream = stream
-        stream = nil
-        onFrame = nil
-        lock.unlock()
+        let scStream = lock.withLock {
+            let previous = stream
+            stream = nil
+            onFrame = nil
+            return previous
+        }
 
         guard let scStream else { return }
         try? await scStream.stopCapture()

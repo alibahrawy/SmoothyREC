@@ -95,29 +95,34 @@ enum PiPCompositor {
         screenComp.preferredTransform = screenTransform
 
         // Camera overlay layer.
-        guard let cameraComp = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw PiPCompositorError.exportSessionCreationFailed
+        var cameraComp: AVMutableCompositionTrack?
+        if overlayDuration > .zero {
+            guard let track = composition.addMutableTrack(
+                withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else { throw PiPCompositorError.exportSessionCreationFailed }
+            cameraComp = track
+            try track.insertTimeRange(
+                CMTimeRange(start: cameraStart, duration: overlayDuration),
+                of: cameraVideo, at: .zero
+            )
         }
-        try cameraComp.insertTimeRange(
-            CMTimeRange(start: cameraStart, duration: overlayDuration),
-            of: cameraVideo, at: .zero
-        )
 
         // Audio: screen (system) audio, then microphone if separate.
         if let screenAudio = try await screenAsset.loadTracks(withMediaType: .audio).first,
            let audioComp = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            try? audioComp.insertTimeRange(screenRange, of: screenAudio, at: .zero)
+            try audioComp.insertTimeRange(screenRange, of: screenAudio, at: .zero)
         }
         if let microphoneURL {
             let micAsset = AVURLAsset(url: microphoneURL)
-            if let micAudio = try await micAsset.loadTracks(withMediaType: .audio).first,
-               let micComp = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            if let micAudio = try await micAsset.loadTracks(withMediaType: .audio).first {
                 let micDuration = try await micAsset.load(.duration)
                 let micStart = CMTimeMinimum(headOffset, micDuration)
-                let micRange = CMTimeRange(start: micStart, duration: CMTimeSubtract(micDuration, micStart))
-                try? micComp.insertTimeRange(micRange, of: micAudio, at: .zero)
+                let micLength = CMTimeMinimum(screenDuration, CMTimeSubtract(micDuration, micStart))
+                if micLength > .zero,
+                   let micComp = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                    let micRange = CMTimeRange(start: micStart, duration: micLength)
+                    try micComp.insertTimeRange(micRange, of: micAudio, at: .zero)
+                }
             }
         }
 
@@ -148,15 +153,18 @@ enum PiPCompositor {
             tx = canvas.width - targetWidth - margin; ty = canvas.height - scaledHeight - margin
         }
 
-        let cameraLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: cameraComp)
+        let cameraLayer = cameraComp.map { AVMutableVideoCompositionLayerInstruction(assetTrack: $0) }
         let scaleAndPlace = cameraTransform
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
             .concatenating(CGAffineTransform(translationX: tx, y: ty))
-        cameraLayer.setTransform(scaleAndPlace, at: .zero)
+        cameraLayer?.setTransform(scaleAndPlace, at: .zero)
+        if overlayDuration < screenDuration {
+            cameraLayer?.setOpacity(0, at: overlayDuration)
+        }
 
         let instruction = AVMutableVideoCompositionInstruction()
         instruction.timeRange = screenRange
-        instruction.layerInstructions = [cameraLayer, screenLayer]
+        instruction.layerInstructions = cameraLayer.map { [$0, screenLayer] } ?? [screenLayer]
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.instructions = [instruction]

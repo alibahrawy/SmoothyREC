@@ -16,7 +16,7 @@ to cut, not one baked-in MP4.
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![Free forever](https://img.shields.io/badge/Price-Free%20forever-22c55e.svg)](#)
 
-[**⬇︎ Download for macOS**](https://github.com/alibahrawy/SmoothyREC/releases/latest/download/SmoothyREC.dmg) · [Why it exists](#why-it-was-made) · [How it works](#how-it-works) · [Build from source](#build-from-source) · [smoothyedit.com](https://smoothyedit.com/products/smoothy-rec)
+[**⬇︎ Download for macOS**](https://github.com/alibahrawy/SmoothyREC/releases/latest/download/SmoothyREC.dmg) · [Why it exists](#why-it-was-made) · [How it works](#how-it-works) · [Build from source](#build-from-source) · [smoothyedit.com](https://smoothyedit.com/smoothyrec)
 
 <img src="docs/images/recorder.png" width="620" alt="The SmoothyREC recorder window" />
 
@@ -99,32 +99,16 @@ exists, and it shapes every design decision inside it.
 
 1. **[Download `SmoothyREC.dmg`](https://github.com/alibahrawy/SmoothyREC/releases/latest/download/SmoothyREC.dmg)** from the latest release.
 2. Open the DMG and drag **SmoothyREC** into your **Applications** folder.
-3. **First launch:** macOS will say it *"could not verify SmoothyREC is free of
-   malware"*. That's Gatekeeper noticing the app isn't notarized — here's the
-   supported way past it:
+3. Launch **SmoothyREC** from Applications. Version **1.1.1** is Developer ID signed and notarized for Apple silicon Macs running macOS 13 or later.
 
-   **macOS 15 (Sequoia) and newer:**
-   1. Double-click SmoothyREC, then click **Done** (not *Move to Trash*).
-   2. Open **System Settings → Privacy & Security**, scroll to the Security
-      section — you'll see *"SmoothyREC" was blocked to protect your Mac*.
-   3. Click **Open Anyway** and confirm.
+### Anonymous usage counts
 
-   **macOS 13–14:** right-click (or Control-click) **SmoothyREC** in
-   Applications, choose **Open**, then click **Open** in the dialog.
-
-> **Why the extra step?** SmoothyREC isn't distributed through the Mac App Store
-> and isn't notarized with a paid Apple Developer ID, so macOS Gatekeeper asks
-> for one explicit confirmation. You only do this **once** — after that it
-> launches normally from Spotlight, Launchpad, or Applications. The warning is
-> about the missing signature, not about anything found in the app — the full
-> source is in this repo if you'd rather build it yourself.
->
-> Terminal alternative (clears the quarantine flag in one step, also fixes a
-> *"damaged and can't be opened"* message):
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/SmoothyREC.app
-> ```
+Settings → General → **Share anonymous usage counts** controls reports of a random
+installation ID, app version and action IDs. Recordings, filenames, paths, device
+names and account details are never included. Reports are best effort and never
+block recording or exports. Set `SMOOTHY_TELEMETRY=0` to disable them from the
+environment. Download starts and recorder activity have a separate private
+SmoothyREC Admin tab; they are not added to SmoothyEdit or Studio counts.
 
 ### Grant permissions
 
@@ -347,7 +331,7 @@ toolset — the thing you hand a non-editor:
 - It's deliberately *not* an editor and *not* a live-streaming tool — it does one
   job, the handoff, well.
 
-→ Learn more at **[smoothyedit.com/products/smoothy-rec](https://smoothyedit.com/products/smoothy-rec)**
+→ Learn more at **[smoothyedit.com/products/smoothy-rec](https://smoothyedit.com/smoothyrec)**
 
 ---
 
@@ -365,10 +349,9 @@ toolset — the thing you hand a non-editor:
 
 **Is it really free?** Yes — free forever, MIT-licensed, source in this repo.
 
-**Why is there a security warning on first launch?** The public build isn't
-notarized with a paid Apple Developer ID. On macOS 15+ use System Settings →
-Privacy & Security → **Open Anyway**; on macOS 13–14 right-click → Open (see
-[Install](#install)). Build it yourself or notarize it to remove the warning.
+**Is the download signed?** Yes. The official 1.1.1 Apple silicon release is
+Developer ID signed, notarized by Apple and distributed with a stapled ticket.
+Source builds use the developer's own signing configuration.
 
 **Where do recordings go?** Into a per-recording folder under your chosen output
 location (Movies by default), with the screen, mic, and camera files side by side.

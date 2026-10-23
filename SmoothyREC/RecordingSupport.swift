@@ -7,6 +7,19 @@
 
 import Foundation
 import CoreMedia
+import AVFoundation
+
+enum RecordingMediaFile {
+    /// Only advertise a recovered file when it contains playable media.
+    static func recoveredURL(_ url: URL?, mediaType: AVMediaType) async -> URL? {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let asset = AVURLAsset(url: url)
+        guard let tracks = try? await asset.loadTracks(withMediaType: mediaType), !tracks.isEmpty,
+              let duration = try? await asset.load(.duration), duration.seconds.isFinite,
+              duration.seconds > 0 else { return nil }
+        return url
+    }
+}
 
 enum SampleBufferRetimer {
     /// Returns a copy of `sampleBuffer` with every timestamp shifted earlier by

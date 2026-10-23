@@ -21,7 +21,7 @@ extension AppDelegate {
         // ARC owns this window; letting AppKit release it on close would
         // over-release and crash when the user closes the completion window.
         completionWindow.isReleasedWhenClosed = false
-        completionWindow.title = "Recording Complete"
+        completionWindow.title = result.isComplete ? "Recording Complete" : "Recording Recovered"
         completionWindow.center()
         completionWindow.contentViewController = NSHostingController(
             rootView: CompletionView(recordingResult: result).environmentObject(self)
@@ -162,8 +162,8 @@ extension AppDelegate {
     }
 
     /// Compares the newest GitHub release against the running version. The
-    /// app is unsigned for now, so instead of an in-app updater we send users
-    /// to the release page to download.
+    /// app uses signed, notarized releases. Send users to the release page
+    /// to download rather than replacing the running app automatically.
     func checkForUpdates(interactive: Bool) async {
         struct Release: Decodable {
             let tag_name: String

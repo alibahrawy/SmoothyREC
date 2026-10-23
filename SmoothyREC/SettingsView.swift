@@ -15,6 +15,7 @@ struct SettingsView: View {
     @EnvironmentObject var appDelegate: AppDelegate
     @StateObject private var settings = SettingsManager.shared
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @AppStorage(RecorderTelemetry.enabledKey) private var anonymousUsageEnabled = true
 
     var body: some View {
         TabView {
@@ -81,6 +82,16 @@ struct SettingsView: View {
                     .onChange(of: launchAtLogin) { enabled in
                         setLaunchAtLogin(enabled)
                     }
+            }
+            Section("Privacy") {
+                Toggle("Share anonymous usage counts", isOn: $anonymousUsageEnabled)
+                    .disabled(RecorderTelemetry.shared.environmentDisabled)
+                    .onChange(of: anonymousUsageEnabled) { enabled in
+                        RecorderTelemetry.shared.setEnabled(enabled)
+                    }
+                Text("Reports a random installation ID, app version and action counts. No recordings, file names, paths, device names or account details are sent. You can turn this off at any time.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -118,6 +118,7 @@ struct MainWindowView: View {
                 Task { await refreshDevices() }
             }
             startLiveScreenPreview()
+            guard !isStarting, appDelegate.recordingCoordinator.state.canStart else { return }
             if selectedCamera != nil, !cameraPreviewManager.isRunning {
                 Task { await cameraPreviewManager.startPreview(camera: selectedCamera) }
             }
@@ -129,6 +130,7 @@ struct MainWindowView: View {
             // Closing the window must stop the live capture pipelines — the
             // persistent view's onDisappear never fires on a mere orderOut.
             guard (note.object as? NSWindow) === appDelegate.mainWindow else { return }
+            screenPreviewManager.setEnabled(false)
             Task { await screenPreviewManager.stopLive() }
             Task {
                 await cameraPreviewManager.stopPreview()
@@ -164,12 +166,14 @@ struct MainWindowView: View {
             // running two SCStreams against the same target wastes power and
             // can hit OS-level frame drops.
             if recording {
+                screenPreviewManager.setEnabled(false)
                 Task { await screenPreviewManager.stopLive() }
             } else {
                 startLiveScreenPreview()
             }
         }
         .onDisappear {
+            screenPreviewManager.setEnabled(false)
             Task { await screenPreviewManager.stopLive() }
             screenPreviewManager.clear()
             Task {
@@ -788,10 +792,12 @@ struct MainWindowView: View {
 
         Task {
             isStarting = true
+            screenPreviewManager.setEnabled(false)
             countdownCancelled = false
             defer {
                 isStarting = false
                 countdownRemaining = nil
+                startLiveScreenPreview()
             }
 
             let countdownCompleted = await performCountdownIfNeeded()
@@ -802,6 +808,7 @@ struct MainWindowView: View {
 
             // Stop preview and monitoring before recording starts
             // (The actual recorders will take over the camera/mic)
+            await screenPreviewManager.stopLive()
             screenPreviewManager.clear()
             await cameraPreviewManager.stopPreview()
             await micMonitorManager.stopMonitoring()
@@ -994,7 +1001,10 @@ struct MainWindowView: View {
     }
 
     private func startLiveScreenPreview() {
-        guard !appDelegate.isRecording else { return }
+        let enabled = appDelegate.mainWindow?.isVisible == true && appDelegate.mainWindow?.isMiniaturized == false && !isStarting
+            && appDelegate.recordingCoordinator.state.canStart && !appDelegate.recordingCoordinator.isStopping
+        screenPreviewManager.setEnabled(enabled)
+        guard enabled else { return }
         guard let target = currentScreenPreviewTarget else {
             Task { await screenPreviewManager.stopLive() }
             screenPreviewManager.clear()

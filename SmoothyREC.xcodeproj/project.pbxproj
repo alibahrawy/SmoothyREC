@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AABB0206000000000001 /* RecorderTelemetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0206000000000001 /* RecorderTelemetryTests.swift */; };
+		AABB0304000000000001 /* RecorderTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0304000000000001 /* RecorderTelemetry.swift */; };
 		AABB00F1000000000001 /* CameraPreviewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00F1000000000001 /* CameraPreviewManager.swift */; };
 		AABB00F2000000000001 /* MicMonitorManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00F2000000000001 /* MicMonitorManager.swift */; };
 		AABB00F3000000000001 /* ScreenPreviewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF00F3000000000001 /* ScreenPreviewManager.swift */; };
@@ -36,6 +38,9 @@
 		AABB0301000000000001 /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0301000000000001 /* HotKeyManager.swift */; };
 		AABB0302000000000001 /* PiPCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0302000000000001 /* PiPCompositor.swift */; };
 		AABB0303000000000001 /* RegionSelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0303000000000001 /* RegionSelectionOverlay.swift */; };
+		AABB0203000000000001 /* RecordingLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0203000000000001 /* RecordingLifecycleTests.swift */; };
+		AABB0204000000000001 /* MediaExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0204000000000001 /* MediaExportTests.swift */; };
+		AABB0205000000000001 /* ScreenPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFF0205000000000001 /* ScreenPreviewTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +54,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAFF0206000000000001 /* RecorderTelemetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderTelemetryTests.swift; sourceTree = "<group>"; };
+		AAFF0304000000000001 /* RecorderTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderTelemetry.swift; sourceTree = "<group>"; };
 		AAFF00F1000000000001 /* CameraPreviewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewManager.swift; sourceTree = "<group>"; };
 		AAFF00F2000000000001 /* MicMonitorManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicMonitorManager.swift; sourceTree = "<group>"; };
 		AAFF00F3000000000001 /* ScreenPreviewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPreviewManager.swift; sourceTree = "<group>"; };
@@ -83,6 +90,9 @@
 		AAFF0301000000000001 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
 		AAFF0302000000000001 /* PiPCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPCompositor.swift; sourceTree = "<group>"; };
 		AAFF0303000000000001 /* RegionSelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionOverlay.swift; sourceTree = "<group>"; };
+		AAFF0203000000000001 /* RecordingLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLifecycleTests.swift; sourceTree = "<group>"; };
+		AAFF0204000000000001 /* MediaExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaExportTests.swift; sourceTree = "<group>"; };
+		AAFF0205000000000001 /* ScreenPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPreviewTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,6 +126,7 @@
 			isa = PBXGroup;
 			children = (
 				AAFF0001000000000001 /* SmoothyRECApp.swift */,
+				AAFF0304000000000001 /* RecorderTelemetry.swift */,
 				AAFF0101000000000001 /* AppDelegate+StatusBar.swift */,
 				AAFF0102000000000001 /* AppDelegate+Windows.swift */,
 				AAFF0103000000000001 /* AppDelegate+Notifications.swift */,
@@ -161,6 +172,10 @@
 			isa = PBXGroup;
 			children = (
 				AAFF0200000000000001 /* RecordingSupportTests.swift */,
+				AAFF0206000000000001 /* RecorderTelemetryTests.swift */,
+				AAFF0205000000000001 /* ScreenPreviewTests.swift */,
+				AAFF0204000000000001 /* MediaExportTests.swift */,
+				AAFF0203000000000001 /* RecordingLifecycleTests.swift */,
 			);
 			path = SmoothyRECTests;
 			sourceTree = "<group>";
@@ -274,6 +289,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AABB0001000000000001 /* SmoothyRECApp.swift in Sources */,
+				AABB0304000000000001 /* RecorderTelemetry.swift in Sources */,
 				AABB0101000000000001 /* AppDelegate+StatusBar.swift in Sources */,
 				AABB0102000000000001 /* AppDelegate+Windows.swift in Sources */,
 				AABB0103000000000001 /* AppDelegate+Notifications.swift in Sources */,
@@ -306,6 +322,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				AABB0200000000000001 /* RecordingSupportTests.swift in Sources */,
+				AABB0206000000000001 /* RecorderTelemetryTests.swift in Sources */,
+				AABB0205000000000001 /* ScreenPreviewTests.swift in Sources */,
+				AABB0204000000000001 /* MediaExportTests.swift in Sources */,
+				AABB0203000000000001 /* RecordingLifecycleTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -446,7 +466,7 @@
 				CODE_SIGN_ENTITLEMENTS = SmoothyREC/SmoothyREC.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"SmoothyREC/Preview Content\"";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -458,7 +478,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.smoothyrec.SmoothyREC;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -474,7 +494,7 @@
 				CODE_SIGN_ENTITLEMENTS = SmoothyREC/SmoothyREC.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"SmoothyREC/Preview Content\"";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -486,7 +506,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.smoothyrec.SmoothyREC;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -499,7 +519,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -521,7 +541,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (

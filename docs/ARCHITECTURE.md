@@ -105,9 +105,11 @@ start()
 - Each recorder publishes its own `state`; the coordinator mirrors them
   (`screenRecorderState`, `micRecorderState`, `cameraRecorderState`) via Combine
   `sink`s so SwiftUI can show per-source status.
-- If the **primary** screen recorder fails mid-session
-  (`handlePrimaryRecorderStateChange`), the coordinator fails the session and
-  discards the optional recorders.
+- If the **primary** screen recorder fails mid-session, the coordinator follows
+  the shared Stop path, finalizes every recorder that started, and exposes any
+  usable files with warnings. Encoder/interruption errors on optional sources
+  stop their capture sessions and remain visible in the result. Files are never
+  discarded automatically on an error.
 
 ### 4. Pause / resume
 
@@ -142,14 +144,17 @@ the camera/mic lead-in and keep lip sync.
 
 ### 5. Stop — `RecordingCoordinator.stop()`
 
-1. Move to `.stopping`.
+1. Move to `.stopping`. Repeated Stop calls await the same finalization task;
+   Stop also waits for an in-flight pause/resume transition.
 2. `stopAllRecordersAndCollectResults()` stops the three recorders **concurrently**
    in a `TaskGroup`, each returning `(component, URL?)`.
 3. Assemble a `RecordingResult` with the screen / mic / camera URLs, duration, and
-   any non-fatal `RecordingWarning`s (derived from `recorderErrors`, excluding
-   screen).
-4. If the screen URL is missing, the session is a hard failure; otherwise it's a
-   success that may carry warnings.
+   `RecordingWarning`s derived from `recorderErrors`, including the screen error
+   when partial footage was recovered.
+4. Capture the screen sync anchor before engines clean up. If only mic/camera
+   files survive, show **Recording Recovered**, including the screen warning.
+   If no usable files survive, report the error and offer the preserved output
+   folder. Discard only deletes an explicitly discarded live take.
 
 ```swift
 struct RecordingResult {
@@ -260,9 +265,16 @@ empty → `Untitled`). The resolver is the main unit under test in
 For a single ready-to-share file, `PiPCompositor.compose(...)` builds an
 `AVMutableComposition`: the screen track is the base layer, the camera track is
 overlaid as a corner inset via an `AVVideoComposition`/layer instructions, and the
-system + mic audio are mixed in. Duration is clamped to
-`min(screenDuration, cameraDuration)`. This is **additive** — it never replaces the
-separate source files the editor relies on.
+system + mic audio are mixed in. The output keeps the screen's full duration;
+camera and microphone ranges are offset and clamped to that duration. Empty
+optional ranges are omitted, and a shorter camera overlay disappears when it
+ends. This is **additive** — it never replaces the separate source files.
+
+Completion compression uses the Apple M4A preset for microphone audio and
+matching MP4/MOV containers for video. Supported output types are checked before
+assignment, and failures keep the original files. Screen preview is enabled only
+while the recorder window is visible and idle; generation checks stop late
+snapshot/stream startups after closing or beginning a recording.
 
 ---
 
@@ -306,8 +318,8 @@ macOS keys TCC permissions to the app's **code-signature hash**. An ad-hoc
 signature changes on every rebuild, so macOS keeps "forgetting" your granted
 Screen Recording permission. [`setup-dev-certificate.sh`](../setup-dev-certificate.sh)
 creates a stable self-signed identity so permissions persist across rebuilds while
-developing. The public release is ad-hoc/unsigned (no paid Developer ID), which is
-why first launch needs a one-time right-click → Open.
+developing. The official 1.1.1 Apple silicon release uses Developer ID signing
+and Apple notarization; source builds use the developer’s signing configuration.
 
 ### Permission classification
 
@@ -343,5 +355,5 @@ Two tiers, matching the primary/optional split:
 | Devices / settings | `DeviceManager.swift`, `SettingsManager.swift`, `HotKeyManager.swift` |
 | UI | `MainWindowView.swift`, `SettingsView.swift`, `SettingsPanelView.swift`, `OnboardingView.swift`, `RecordingStatusView.swift`, `CompletionView.swift`, `ContentView.swift` |
 | Overlays / previews | `CountdownOverlay.swift`, `RegionSelectionOverlay.swift`, `CameraPreviewManager.swift`, `ScreenPreviewManager.swift`, `MicMonitorManager.swift` |
-| Tests | `SmoothyRECTests/RecordingSupportTests.swift` |
+| Tests | `SmoothyRECTests/RecordingSupportTests.swift`, `RecordingLifecycleTests.swift`, `MediaExportTests.swift`, `ScreenPreviewTests.swift` |
 </content>

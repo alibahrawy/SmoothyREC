@@ -150,6 +150,8 @@ class MicRecorder: NSObject, ObservableObject {
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
     private var pauseBeganAt: Date?
+    private var failureFinalization: Task<URL?, Never>?
+    private var captureObservers: [NSObjectProtocol] = []
 
     private let sessionQueue = DispatchQueue(label: "com.smoothyrec.micrecorder", qos: .userInitiated)
 
@@ -200,11 +202,10 @@ class MicRecorder: NSObject, ObservableObject {
     /// anchors the file's timeline to the session-wide sync clock (the same
     /// anchor the camera uses) so all stems line up in an editor.
     func startRecording(configuration: MicrophoneConfiguration, syncTime: CMTime) async throws {
+        if let failureFinalization { _ = await failureFinalization.value }
+        failureFinalization = nil
         guard state.canStart else {
-            if case .recording = state {
-                throw MicRecorderError.alreadyRecording
-            }
-            return
+            throw MicRecorderError.alreadyRecording
         }
 
         state = .preparing
@@ -228,13 +229,20 @@ class MicRecorder: NSObject, ObservableObject {
             startAudioLevelMetering()
 
         } catch {
-            state = .failed(error)
+            await stopCaptureSession()
+            try? await finishWriting()
             await cleanup()
+            state = .failed(error)
             throw error
         }
     }
 
     func stopRecording() async throws -> URL {
+        if let failureFinalization {
+            if let url = await failureFinalization.value { return url }
+            if case .failed(let error) = state { throw error }
+            throw MicRecorderError.notRecording
+        }
         let wasRecording = readState { $0.isRecording }
         guard wasRecording else {
             throw MicRecorderError.notRecording
@@ -246,7 +254,13 @@ class MicRecorder: NSObject, ObservableObject {
 
         await stopCaptureSession()
 
-        try await finishWriting()
+        do {
+            try await finishWriting()
+        } catch {
+            await cleanup()
+            state = .failed(error)
+            throw error
+        }
 
         guard let outputURL = outputURL else {
             throw MicRecorderError.invalidOutputURL
@@ -264,6 +278,10 @@ class MicRecorder: NSObject, ObservableObject {
 
     /// Discards the current recording without saving
     func discardRecording() async {
+        if let failureFinalization {
+            if let url = await failureFinalization.value { try? FileManager.default.removeItem(at: url) }
+            self.failureFinalization = nil
+        }
         stopDurationTimer()
         stopAudioLevelMetering()
         await stopCaptureSession()
@@ -355,6 +373,7 @@ class MicRecorder: NSObject, ObservableObject {
         // Create capture session
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .high
+        observeCaptureFailures()
 
         // Create input
         do {
@@ -454,9 +473,17 @@ class MicRecorder: NSObject, ObservableObject {
                 let writer = self.readState { $0.assetWriter }
                 let hasStarted = self.readState { $0.hasStartedWriting }
 
+                if let writer, writer.status == .failed {
+                    continuation.resume(throwing: MicRecorderError.encodingFailed(writer.error?.localizedDescription ?? "Audio encoding failed."))
+                    return
+                }
+                guard let writer, writer.status == .writing else {
+                    continuation.resume()
+                    return
+                }
                 self.updateState { $0.assetWriterInput?.markAsFinished() }
 
-                if let writer = writer, writer.status == .writing, hasStarted {
+                if hasStarted {
                     nonisolated(unsafe) let writer = writer
                     writer.finishWriting {
                         if writer.status == .failed {
@@ -467,9 +494,7 @@ class MicRecorder: NSObject, ObservableObject {
                         }
                     }
                 } else {
-                    if let writer = writer, writer.status == .writing {
-                        writer.cancelWriting()
-                    }
+                    writer.cancelWriting()
                     continuation.resume()
                 }
             }
@@ -477,6 +502,8 @@ class MicRecorder: NSObject, ObservableObject {
     }
 
     private func cleanup() async {
+        captureObservers.forEach(NotificationCenter.default.removeObserver)
+        captureObservers.removeAll()
         captureSession = nil
         audioInput = nil
         audioOutput = nil
@@ -492,7 +519,34 @@ class MicRecorder: NSObject, ObservableObject {
         currentConfiguration = nil
         recordingStartTime = nil
         pauseBeganAt = nil
+        outputURL = nil
         audioLevel = -160.0
+    }
+
+    private func observeCaptureFailures() {
+        guard let captureSession else { return }
+        for name in [AVCaptureSession.runtimeErrorNotification, AVCaptureSession.wasInterruptedNotification] {
+            captureObservers.append(NotificationCenter.default.addObserver(forName: name, object: captureSession, queue: nil) { [weak self] note in
+                let message = (note.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription ?? "Microphone capture was interrupted."
+                Task { @MainActor in self?.failRecording(with: MicRecorderError.encodingFailed(message)) }
+            })
+        }
+    }
+
+    private func failRecording(with error: Error) {
+        guard state.isRecording || state == .preparing else { return }
+        stopDurationTimer()
+        stopAudioLevelMetering()
+        updateState { $0.isRecording = false }
+        state = .failed(error)
+        let url = outputURL
+        failureFinalization = Task {
+            await self.stopCaptureSession()
+            try? await self.finishWriting()
+            let recovered = await RecordingMediaFile.recoveredURL(url, mediaType: .audio)
+            await self.cleanup()
+            return recovered
+        }
     }
 
     // MARK: - Pause/Resume
@@ -625,7 +679,7 @@ extension MicRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
                         micLogger.error("Mic append failed: \(message)")
                         state.isRecording = false
                         Task { @MainActor in
-                            self.state = .failed(MicRecorderError.encodingFailed(message))
+                            self.failRecording(with: MicRecorderError.encodingFailed(message))
                         }
                     }
                 }

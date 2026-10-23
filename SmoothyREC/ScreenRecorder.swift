@@ -214,6 +214,8 @@ class ScreenRecorder: NSObject, ObservableObject {
         // The coordinator subtracts the session syncTime from this to know how
         // far the camera/mic stems lead the screen file.
         var captureAnchorTime: CMTime?
+        var captureStreamID: ObjectIdentifier?
+        var recordingOutputID: ObjectIdentifier?
     }
 
     nonisolated(unsafe) private var recorderState = RecorderState()
@@ -225,6 +227,7 @@ class ScreenRecorder: NSObject, ObservableObject {
     private var durationTimer: Timer?
     private var pauseBeganAt: Date?
     private var nativeRecordingOutput: AnyObject?
+    private var failureFinalization: Task<URL?, Never>?
 
     // Audio capture
     private var audioCaptureSession: AVCaptureSession?
@@ -319,6 +322,8 @@ class ScreenRecorder: NSObject, ObservableObject {
     // MARK: - Public Methods
 
     func startRecording(configuration: RecordingConfiguration) async throws {
+        if let failureFinalization { _ = await failureFinalization.value }
+        failureFinalization = nil
         // Throw for every non-startable state (.stopping, .preparing, .paused) —
         // returning silently here used to let the coordinator carry on into a
         // "recording" state with no capture running.
@@ -328,6 +333,7 @@ class ScreenRecorder: NSObject, ObservableObject {
 
         state = .preparing
         currentConfiguration = configuration
+        updateState { $0.captureAnchorTime = nil }
 
         do {
             try await checkPermissions()
@@ -387,6 +393,11 @@ class ScreenRecorder: NSObject, ObservableObject {
     }
 
     func stopRecording() async throws -> URL {
+        if let failureFinalization {
+            if let url = await failureFinalization.value { return url }
+            if case .failed(let error) = state { throw error }
+            throw RecordingError.notRecording
+        }
         let wasRecording = readState { $0.isRecording }
         guard wasRecording else {
             throw RecordingError.notRecording
@@ -399,8 +410,17 @@ class ScreenRecorder: NSObject, ObservableObject {
 
         stopMicrophoneCapture()
 
-        try await stopCaptureAndFinalizeRecording()
-        try await consolidateNativeSegmentsIfNeeded()
+        do {
+            try await stopCaptureAndFinalizeRecording()
+            try await consolidateNativeSegmentsIfNeeded()
+            guard await RecordingMediaFile.recoveredURL(outputURL, mediaType: .video) != nil else {
+                throw RecordingError.invalidOutputURL
+            }
+        } catch {
+            await cleanup()
+            state = .failed(error)
+            throw error
+        }
 
         guard let outputURL = outputURL else {
             throw RecordingError.invalidOutputURL
@@ -498,6 +518,10 @@ class ScreenRecorder: NSObject, ObservableObject {
     }
 
     func discardRecording() async {
+        if let failureFinalization {
+            if let url = await failureFinalization.value { try? FileManager.default.removeItem(at: url) }
+            self.failureFinalization = nil
+        }
         stopDurationTimer()
         updateState { $0.isRecording = false }
         await stopCaptureDiscardingRecording()
@@ -791,6 +815,7 @@ class ScreenRecorder: NSObject, ObservableObject {
                 NSError(domain: "SmoothyREC", code: -1, userInfo: [NSLocalizedDescriptionKey: "Capture stream was not created"])
             )
         }
+        updateState { $0.captureStreamID = ObjectIdentifier(captureStream) }
 
         if useNativeRecordingOutput {
             guard let recordingURL = nativeSegmentURL ?? outputURL else {
@@ -851,13 +876,22 @@ class ScreenRecorder: NSObject, ObservableObject {
                 let writer = self.readState { $0.assetWriter }
                 let hasStarted = self.readState { $0.hasStartedWriting }
 
+                if let writer, writer.status == .failed {
+                    continuation.resume(throwing: RecordingError.encodingFailed(writer.error?.localizedDescription ?? "Screen encoding failed."))
+                    return
+                }
+                guard let writer, writer.status == .writing else {
+                    continuation.resume()
+                    return
+                }
+
                 self.updateState { state in
                     state.videoInput?.markAsFinished()
                     state.audioInput?.markAsFinished()
                     state.micAudioInput?.markAsFinished()
                 }
 
-                if let writer = writer, writer.status == .writing, hasStarted {
+                if hasStarted {
                     nonisolated(unsafe) let writer = writer
                     writer.finishWriting {
                         if writer.status == .failed {
@@ -870,9 +904,7 @@ class ScreenRecorder: NSObject, ObservableObject {
                         }
                     }
                 } else {
-                    if let writer = writer, writer.status == .writing {
-                        writer.cancelWriting()
-                    }
+                    writer.cancelWriting()
                     continuation.resume()
                 }
             }
@@ -926,7 +958,9 @@ class ScreenRecorder: NSObject, ObservableObject {
             state.pauseStartedAt = nil
             state.pauseOffset = .zero
             state.nativeRecordingFinished = false
-            state.captureAnchorTime = nil
+            state.captureStreamID = nil
+            state.recordingOutputID = nil
+            // Keep final timing metadata until the next recording starts.
             state.nativeSegmentURLs = []
         }
         currentConfiguration = nil
@@ -1031,13 +1065,21 @@ class ScreenRecorder: NSObject, ObservableObject {
         state = .failed(error)
         stopMicrophoneCapture()
 
-        Task {
+        let url = outputURL
+        let usesNative = readState { $0.usesNativeRecordingOutput }
+        failureFinalization = Task {
             // Salvage what was captured: finalize the writer instead of
             // abandoning it, so a mid-recording failure (display unplugged,
             // encoder error) keeps the footage up to the failure point.
             try? await self.captureStream?.stopCapture()
-            try? await self.finishWriting()
+            if usesNative {
+                try? await self.consolidateNativeSegmentsIfNeeded()
+            } else {
+                try? await self.finishWriting()
+            }
+            let recovered = await RecordingMediaFile.recoveredURL(url, mediaType: .video)
             await self.cleanup()
+            return recovered
         }
     }
 
@@ -1191,6 +1233,7 @@ class ScreenRecorder: NSObject, ObservableObject {
         }
 
         let recordingOutput = SCRecordingOutput(configuration: recordingConfiguration, delegate: self)
+        updateState { $0.recordingOutputID = ObjectIdentifier(recordingOutput) }
         try stream.addRecordingOutput(recordingOutput)
         nativeRecordingOutput = recordingOutput
     }
@@ -1200,6 +1243,7 @@ class ScreenRecorder: NSObject, ObservableObject {
 
 extension ScreenRecorder: SCStreamDelegate {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        guard readState({ $0.captureStreamID == ObjectIdentifier(stream) }) else { return }
         // The user clicking Stop in the macOS menu bar screen-recording
         // indicator surfaces here as an "error" — treat it as a normal stop
         // request so the take gets saved instead of an error alert.
@@ -1235,8 +1279,9 @@ extension ScreenRecorder: SCStreamOutput {
         guard CMSampleBufferIsValid(sampleBuffer) else { return }
 
         nonisolated(unsafe) let sampleBuffer = sampleBuffer
+        let streamID = ObjectIdentifier(stream)
         writerQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.readState({ $0.captureStreamID == streamID }) else { return }
             switch outputType {
             case .screen:
                 self.handleVideoSampleBuffer(sampleBuffer)
@@ -1317,6 +1362,7 @@ extension ScreenRecorder: SCStreamOutput {
 @available(macOS 15.0, *)
 extension ScreenRecorder: SCRecordingOutputDelegate {
     nonisolated func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
+        guard readState({ $0.recordingOutputID == ObjectIdentifier(recordingOutput) }) else { return }
         updateState { state in
             if state.captureAnchorTime == nil {
                 state.captureAnchorTime = CMClockGetTime(CMClockGetHostTimeClock())
@@ -1326,6 +1372,7 @@ extension ScreenRecorder: SCRecordingOutputDelegate {
     }
 
     nonisolated func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
+        guard readState({ $0.recordingOutputID == ObjectIdentifier(recordingOutput) }) else { return }
         let wrappedError = RecordingError.encodingFailed(error.localizedDescription)
         resumePendingRecordingStart(with: .failure(wrappedError))
         resumePendingRecordingFinish(with: .failure(wrappedError))
@@ -1336,6 +1383,7 @@ extension ScreenRecorder: SCRecordingOutputDelegate {
     }
 
     nonisolated func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        guard readState({ $0.recordingOutputID == ObjectIdentifier(recordingOutput) }) else { return }
         updateState { $0.nativeRecordingFinished = true }
         resumePendingRecordingFinish(with: .success(()))
     }

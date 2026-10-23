@@ -133,12 +133,12 @@ struct CompletionView: View {
     // MARK: - Header
     private var headerView: some View {
         HStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: recordingResult.isComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 32))
-                .foregroundColor(.green)
+                .foregroundColor(recordingResult.isComplete ? .green : .orange)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Recording Complete")
+                Text(recordingResult.isComplete ? "Recording Complete" : "Recording Recovered")
                     .font(.system(size: 18, weight: .semibold))
 
                 Text(viewModel.formattedTotalDuration)
@@ -444,34 +444,8 @@ struct FileItemView: View {
 
         Task {
             do {
-                let compressedURL = try await compressor.compress(
-                    inputURL: item.fileURL,
-                    preset: .mediumQuality
-                )
-
-                // Replace original with compressed. If anything fails, leave the
-                // original in place and surface the error rather than silently no-op.
-                let fileManager = FileManager.default
-                let backupURL = item.fileURL.deletingPathExtension()
-                    .appendingPathExtension("backup.\(item.fileURL.pathExtension)")
-
-                do {
-                    try fileManager.moveItem(at: item.fileURL, to: backupURL)
-                    try fileManager.moveItem(at: compressedURL, to: item.fileURL)
-                    try? fileManager.removeItem(at: backupURL)
-
-                    await MainActor.run {
-                        item.markAsCompressed()
-                    }
-                } catch {
-                    // Best-effort restore so the user is never left without their recording.
-                    if fileManager.fileExists(atPath: backupURL.path),
-                       !fileManager.fileExists(atPath: item.fileURL.path) {
-                        try? fileManager.moveItem(at: backupURL, to: item.fileURL)
-                    }
-                    try? fileManager.removeItem(at: compressedURL)
-                    throw error
-                }
+                try await compressor.compressAndReplace(inputURL: item.fileURL, preset: .mediumQuality)
+                item.markAsCompressed()
             } catch {
                 completionLogger.error("Compression failed: \(error.localizedDescription)")
                 await MainActor.run {
@@ -515,6 +489,9 @@ struct PreviewPlayerView: View {
             .padding(12)
         }
         .onAppear { player.play() }
+        .onReceive(player.publisher(for: \.timeControlStatus)) { status in
+            if status == .playing { RecorderTelemetry.shared.trackPreview(url) }
+        }
         .onDisappear { player.pause() }
     }
 }
@@ -526,6 +503,28 @@ class VideoCompressor: ObservableObject {
     @Published var isCompressing = false
     @Published var progress: Double = 0.0
 
+    /// Count only after the final file replacement, never a temporary export.
+    func compressAndReplace(inputURL: URL, preset: AVAssetExportPreset,
+                            trackUsage: ((RecorderFeature) -> Void)? = nil) async throws {
+        try Task.checkCancellation()
+        let compressedURL = try await compress(inputURL: inputURL, preset: preset)
+        let fileManager = FileManager.default
+        let backupURL = inputURL.deletingPathExtension().appendingPathExtension("backup.\(inputURL.pathExtension)")
+        do {
+            try Task.checkCancellation()
+            try fileManager.moveItem(at: inputURL, to: backupURL)
+            try fileManager.moveItem(at: compressedURL, to: inputURL)
+            try? fileManager.removeItem(at: backupURL)
+        } catch {
+            if fileManager.fileExists(atPath: backupURL.path), !fileManager.fileExists(atPath: inputURL.path) {
+                try? fileManager.moveItem(at: backupURL, to: inputURL)
+            }
+            try? fileManager.removeItem(at: compressedURL)
+            throw error
+        }
+        (trackUsage ?? { RecorderTelemetry.shared.track($0) })(.fileCompress)
+    }
+
     func compress(inputURL: URL, preset: AVAssetExportPreset) async throws -> URL {
         isCompressing = true
         progress = 0.0
@@ -535,11 +534,15 @@ class VideoCompressor: ObservableObject {
         }
 
         let asset = AVAsset(url: inputURL)
+        let isAudio = inputURL.pathExtension.lowercased() == "m4a"
+        let presetName = isAudio ? AVAssetExportPresetAppleM4A : preset.exportPreset
 
         // Determine output file type based on input
         let outputFileType: AVFileType
-        if inputURL.pathExtension.lowercased() == "m4a" {
+        if isAudio {
             outputFileType = .m4a
+        } else if inputURL.pathExtension.lowercased() == "mp4" {
+            outputFileType = .mp4
         } else {
             outputFileType = .mov
         }
@@ -547,13 +550,23 @@ class VideoCompressor: ObservableObject {
         // Create temporary output URL
         let tempDir = FileManager.default.temporaryDirectory
         let outputURL = tempDir.appendingPathComponent("compressed_\(UUID().uuidString).\(inputURL.pathExtension)")
+        var completed = false
+        defer {
+            if !completed { try? FileManager.default.removeItem(at: outputURL) }
+        }
 
         // Check if export is possible
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: preset.exportPreset
+            presetName: presetName
         ) else {
             throw CompressionError.exportSessionCreationFailed
+        }
+
+        // Setting an unsupported type raises an Objective-C exception, which
+        // Swift do/catch cannot catch. Validate before touching the property.
+        guard exportSession.supportedFileTypes.contains(outputFileType) else {
+            throw CompressionError.unsupportedOutputType
         }
 
         exportSession.outputURL = outputURL
@@ -562,22 +575,20 @@ class VideoCompressor: ObservableObject {
 
         // Monitor progress
         let progressTask = Task {
-            while exportSession.status == .waiting || exportSession.status == .exporting {
+            while !Task.isCancelled && (exportSession.status == .waiting || exportSession.status == .exporting) {
                 await MainActor.run {
                     self.progress = Double(exportSession.progress)
                 }
                 try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
             }
         }
+        defer { progressTask.cancel() }
 
         // Perform export
         await exportSession.export()
 
         // Cancel progress monitoring
         progressTask.cancel()
-
-        // Update final progress
-        progress = 1.0
 
         // Check result
         if let error = exportSession.error {
@@ -587,6 +598,9 @@ class VideoCompressor: ObservableObject {
         guard exportSession.status == .completed else {
             throw CompressionError.exportFailed(nil)
         }
+
+        completed = true
+        progress = 1.0
 
         return outputURL
     }
@@ -609,9 +623,18 @@ enum AVAssetExportPreset {
     }
 }
 
-enum CompressionError: Error {
+enum CompressionError: LocalizedError {
     case exportSessionCreationFailed
     case exportFailed(Error?)
+    case unsupportedOutputType
+
+    var errorDescription: String? {
+        switch self {
+        case .exportSessionCreationFailed: return "This recording cannot be compressed with the selected preset."
+        case .unsupportedOutputType: return "The selected preset does not support this recording's file format."
+        case .exportFailed(let error): return error?.localizedDescription ?? "Compression did not finish."
+        }
+    }
 }
 
 // MARK: - File Item
@@ -724,7 +747,10 @@ class CompletionViewModel: ObservableObject {
 
     let result: RecordingResult
 
-    init(result: RecordingResult) {
+    private let trackUsage: (RecorderFeature) -> Void
+
+    init(result: RecordingResult, trackUsage: ((RecorderFeature) -> Void)? = nil) {
+        self.trackUsage = trackUsage ?? { RecorderTelemetry.shared.track($0) }
         self.result = result
         loadFileItems()
     }
@@ -768,6 +794,7 @@ class CompletionViewModel: ObservableObject {
                 fileItems.append(FileItem(fileURL: url, type: .combined, fileSize: size))
             }
             pipState = .done(url)
+            trackUsage(.pipExport)
         } catch {
             completionLogger.error("PiP export failed: \(error.localizedDescription)")
             pipState = .failed(error.localizedDescription)

@@ -80,10 +80,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
     private var awaitingScreenPermissionReturn = false
     private var launchScreenPermissionGranted = false
     private var pendingHotKeyStart = false
+    private var stopRequestInFlight = false
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Unit tests use fake capture engines and synthetic media. Do not open
+        // windows, access devices, request permissions or check for updates.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        RecorderTelemetry.shared.start()
         // Regular app: visible in the Dock and ⌘Tab so it clearly reads as
         // "open" while its menu bar item is present. Closing the window keeps
         // it running; quitting removes the menu bar item with it.
@@ -116,6 +121,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
     }
 
     /// Clicking the Dock icon with no windows open reopens the recorder.
+    func applicationWillTerminate(_ notification: Notification) {
+        RecorderTelemetry.shared.stop()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             showMainWindow()
@@ -133,6 +142,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let state = recordingCoordinator.state
+        if case .stopping = state {
+            Task { @MainActor in
+                do {
+                    _ = try await self.recordingCoordinator.stop()
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                } catch {
+                    NSApp.reply(toApplicationShouldTerminate: false)
+                }
+            }
+            return .terminateLater
+        }
         guard state.isRecording || state.isPaused else {
             return .terminateNow
         }
@@ -148,8 +168,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             Task { @MainActor in
-                _ = try? await self.recordingCoordinator.stop()
-                NSApp.reply(toApplicationShouldTerminate: true)
+                do {
+                    _ = try await self.recordingCoordinator.stop()
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                } catch {
+                    // Stay open so the user can inspect files kept on disk.
+                    NSApp.reply(toApplicationShouldTerminate: false)
+                }
             }
             return .terminateLater
         case .alertSecondButtonReturn:
@@ -257,40 +282,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
     }
 
     func stopRecordingFromStatusBar() {
+        guard !stopRequestInFlight,
+              recordingCoordinator.state.isRecording || recordingCoordinator.state.isPaused else { return }
+        stopRequestInFlight = true
         logger.info("stopRecording called")
         recordingStatusPopover?.performClose(nil)
 
         Task {
+            defer { stopRequestInFlight = false }
             do {
                 let result = try await recordingCoordinator.stop()
                 logger.info("Recording completed with \(result.allURLs.count) files")
             } catch {
                 logger.error("Failed to stop recording: \(error.localizedDescription)")
-                await MainActor.run {
-                    // Force the UI back to a sensible state — if stop() threw
-                    // because the coordinator is in an unexpected state, the
-                    // .finished branch in handleCoordinatorStateChange never
-                    // fires, leaving the menu bar stuck in "recording" mode
-                    // with a popover that just re-throws on every click.
-                    self.forceResetRecordingUI()
-                    self.showRecordingErrorAlert(error: error)
-                }
+                // The coordinator publishes the error and preserves recoverable
+                // files. A save failure must never turn into a Discard action.
             }
-        }
-    }
-
-    /// Resets all "currently recording" UI state regardless of what the
-    /// coordinator thinks. Called when stop() fails and leaves the UI orphaned.
-    private func forceResetRecordingUI() {
-        isRecording = false
-        isPaused = false
-        recordingStatusPopover?.performClose(nil)
-        updateMainStatusButton()
-
-        // Also tell the coordinator to discard if it's stuck — best-effort,
-        // don't await so the alert below doesn't block.
-        Task {
-            await self.recordingCoordinator.discard()
         }
     }
 
@@ -325,9 +332,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
     }
 
     private func hotKeyToggleRecord() {
+        guard !recordingCoordinator.isStopping else { return }
         if isRecording {
             stopRecordingFromStatusBar()
         } else {
+            guard recordingCoordinator.state.canStart else { return }
             // Bring the recorder window forward and let it start with the
             // current device selections, countdown, and overlay.
             pendingHotKeyStart = true
@@ -439,9 +448,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Observable
         let alert = NSAlert()
         alert.messageText = "Recording Error"
         alert.informativeText = error.localizedDescription
+        if let directory = recordingCoordinator.recoveryDirectory {
+            alert.informativeText += "\n\nExisting recording files were kept in:\n\(directory.path)"
+            alert.addButton(withTitle: "Show Files")
+        }
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        if alert.runModal() == .alertFirstButtonReturn,
+           let directory = recordingCoordinator.recoveryDirectory {
+            NSWorkspace.shared.open(directory)
+        }
     }
 
     func isScreenPermissionChangeRequiresRelaunch(_ error: Error) -> Bool {
